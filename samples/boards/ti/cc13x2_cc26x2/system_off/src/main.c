@@ -20,6 +20,8 @@ static const struct gpio_dt_spec sw0_gpio = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpio
 #define SLEEP_US 2000U
 #define SLEEP_S     3U
 
+#define GPIO_DIO_ALL_MASK       (0xFFFFFFFF)  // GPIO all DIOs mask
+
 extern void CC1352R1_LAUNCHXL_shutDownExtFlash(void);
 
 int main(void)
@@ -56,8 +58,8 @@ int main(void)
 	printk("Powering off; press BUTTON1 to restart\n");
 
 	/* Clear GPIO interrupt */
-	status = GPIO_getEventMultiDio(GPIO_DIO_ALL_MASK);
-	GPIO_clearEventMultiDio(status);
+	status = ( HWREG( GPIO_BASE + GPIO_O_EVFLAGS31_0 ) & GPIO_DIO_ALL_MASK );
+    HWREG( GPIO_BASE + GPIO_O_EVFLAGS31_0 ) = status;
 
 	sys_poweroff();
 
