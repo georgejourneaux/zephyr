@@ -3574,7 +3574,7 @@ static const char *vs_hw_platform(uint16_t platform)
 {
 	static const char * const plat_str[] = {
 		"reserved", "Intel Corporation", "Nordic Semiconductor",
-		"NXP Semiconductors" };
+		"NXP Semiconductors", "Texas Instruments" };
 
 	if (platform < ARRAY_SIZE(plat_str)) {
 		return plat_str[platform];
@@ -3589,12 +3589,18 @@ static const char *vs_hw_variant(uint16_t platform, uint16_t variant)
 		"reserved", "nRF51x", "nRF52x", "nRF53x"
 	};
 
-	if (platform != BT_HCI_VS_HW_PLAT_NORDIC) {
-		return "unknown";
+	static const char * const ti_str[] = {
+		"reserved", "cc13xx_cc26xx"
+	};
+
+	if (platform == BT_HCI_VS_HW_PLAT_NORDIC
+		&& variant < ARRAY_SIZE(nordic_str)) {
+		return nordic_str[variant];
 	}
 
-	if (variant < ARRAY_SIZE(nordic_str)) {
-		return nordic_str[variant];
+	if (platform == BT_HCI_VS_HW_PLAT_TI
+		&& variant < ARRAY_SIZE(ti_str)) {
+		return ti_str[variant];
 	}
 
 	return "unknown";

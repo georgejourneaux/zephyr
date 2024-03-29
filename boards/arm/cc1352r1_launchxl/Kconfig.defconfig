@@ -8,4 +8,7 @@ if BOARD_CC1352R1_LAUNCHXL
 config BOARD
 	default "cc1352r1_launchxl"
 
+config BT_CTLR
+	default BT
+
 endif # BOARD_CC1352R1_LAUNCHXL

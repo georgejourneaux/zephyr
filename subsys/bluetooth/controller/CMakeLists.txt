@@ -176,6 +176,17 @@ elseif(CONFIG_SOC_OPENISA_RV32M1_RISCV32)
   include(ll_sw/openisa.cmake)
 endif()
 
+zephyr_library_include_directories_ifdef(
+  CONFIG_SOC_FAMILY_TI_SIMPLELINK
+  ll_sw/ti
+  ll_sw/ti/hci
+)
+
+add_subdirectory_ifdef(
+  CONFIG_SOC_FAMILY_TI_SIMPLELINK
+  ll_sw/ti
+  )
+
 zephyr_library_include_directories(
   .
   include

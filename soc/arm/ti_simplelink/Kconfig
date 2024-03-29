@@ -2,10 +2,10 @@
 
 # SPDX-License-Identifier: Apache-2.0
 
-config SOC_FAMILY_TISIMPLELINK
+config SOC_FAMILY_TI_SIMPLELINK
 	bool
 
-if SOC_FAMILY_TISIMPLELINK
+if SOC_FAMILY_TI_SIMPLELINK
 
 config SOC_FAMILY
 	string
@@ -19,4 +19,4 @@ config HAS_TI_CCFG
 	  Selected when CCFG (Customer Configuration) registers
 	  appear at the end of flash
 
-endif # SOC_FAMILY_TISIMPLELINK
+endif # SOC_FAMILY_TI_SIMPLELINK

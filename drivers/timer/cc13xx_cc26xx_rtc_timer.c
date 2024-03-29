@@ -242,11 +242,13 @@ static int sys_clock_driver_init(void)
 	initDevice();
 	startDevice();
 
+#if !defined(CONFIG_BLE_CC13XX_CC26XX)
 	/* Enable RTC interrupt. */
 	IRQ_CONNECT(DT_INST_IRQN(0),
 		DT_INST_IRQ(0, priority),
 		rtc_isr, 0, 0);
 	irq_enable(DT_INST_IRQN(0));
+#endif
 
 	return 0;
 }
