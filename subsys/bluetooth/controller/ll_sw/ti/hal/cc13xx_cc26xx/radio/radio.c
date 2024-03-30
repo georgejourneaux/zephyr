@@ -163,7 +163,7 @@ typedef struct cc13xx_cc26xx_channel_table {
 } cc13xx_cc26xx_channel_table_t;
 
 static RF_Object rfObject;
-static RF_Handle rfHandle;
+static RF_Handle rfBleHandle;
 static RF_Mode RF_modeBle = {
 	.rfMode = RF_MODE_MULTIPLE,
 	.cpePatchFxn = &rf_patch_cpe_multi_protocol,
@@ -211,18 +211,6 @@ static uint8_t MALIGN(4) _pkt_scratch[MAX((HAL_RADIO_PDU_LEN_MAX + 3),
 
 /* Overrides for CMD_BLE5_RADIO_SETUP */
 static uint32_t pOverridesCommon[] = {
-#if defined(CONFIG_BT_CTLR_DEBUG_PINS)
-	/* See http://bit.ly/2vydFIa */
-	(uint32_t)0x008F88B3,
-	HW_REG_OVERRIDE(
-		0x1110,
-		0
-		| RFC_DBELL_SYSGPOCTL_GPOCTL0_RATGPO1 /* RX */
-		| RFC_DBELL_SYSGPOCTL_GPOCTL1_CPEGPO1 /* PA (default setting) */
-		| RFC_DBELL_SYSGPOCTL_GPOCTL2_RATGPO2 /* BLE TX Window */
-		| RFC_DBELL_SYSGPOCTL_GPOCTL3_RATGPO0 /* TX */
-	),
-#endif /* defined(CONFIG_BT_CTLR_DEBUG_PINS) */
 	(uint32_t)0x00F388D3,
 	/* Bluetooth 5: Set pilot tone length to 20 us Common */
 	HW_REG_OVERRIDE(0x6024, 0x2E20),
@@ -808,7 +796,7 @@ static void transmit_window_callback(RF_Handle h, RF_RatHandle rh, RF_EventMask 
 			.mode = RF_RatOutputModeClear,
 			.select = RF_RatOutputSelectRatGpo2,
 		};
-		RF_ratCompare(rfHandle, &channelConfig, &ioConfig);
+		RF_ratCompare(rfBleHandle, &channelConfig, &ioConfig);
 
 	}
 }
@@ -837,7 +825,7 @@ static void transmit_window_debug(uint32_t begin, uint32_t duration, uint32_t in
 		.mode = RF_RatOutputModeSet,
 		.select = RF_RatOutputSelectRatGpo2,
 	};
-	RF_ratCompare(rfHandle, &channelConfig, &ioConfig);
+	RF_ratCompare(rfBleHandle, &channelConfig, &ioConfig);
 }
 #endif /* defined(CONFIG_BT_CTLR_DEBUG_PINS) */
 
@@ -846,7 +834,7 @@ static void pkt_rx(const struct isr_radio_param *isr_radio_param)
 	bool once = false;
 	rfc_dataEntryPointer_t *it;
 //	rfc_bleRadioOp_t *op =
-//		(rfc_bleRadioOp_t *)RF_getCmdOp(rfHandle, isr_radio_param->ch);
+//		(rfc_bleRadioOp_t *)RF_getCmdOp(rfBleHandle, isr_radio_param->ch);
 
 	crc_valid = false;
 
@@ -983,7 +971,7 @@ void isr_radio(void)
 
 	RF_EventMask irq = isr_radio_param->e;
 	rfc_bleRadioOp_t *op =
-		(rfc_bleRadioOp_t *)RF_getCmdOp(rfHandle, isr_radio_param->ch);
+		(rfc_bleRadioOp_t *)RF_getCmdOp(rfBleHandle, isr_radio_param->ch);
 
 	if ( !( CMD_BLE_ADV == op->commandNo || CMD_NOP == op->commandNo ) ) {
 		LOG_DBG("now: %u h: %p ch: %u (%s) e: %" PRIx64, cntr_cnt_get(),
@@ -1015,7 +1003,7 @@ void isr_radio(void)
 		/* 0b1010..RX Cancel -- Cancels pending RX events but do not
 		 *			abort a RX-in-progress
 		 */
-		RF_ratDisableChannel(rfHandle, driver_data->rat_hcto_handle);
+		RF_ratDisableChannel(rfBleHandle, driver_data->rat_hcto_handle);
 
 		/* Copy the PDU as it arrives, calculates Rx end */
 		pkt_rx(isr_radio_param);
@@ -1029,7 +1017,7 @@ void isr_radio(void)
 
 	if (irq & RF_EventLastCmdDone) {
 		/* Disable both comparators */
-		RF_ratDisableChannel(rfHandle, driver_data->rat_hcto_handle);
+		RF_ratDisableChannel(rfBleHandle, driver_data->rat_hcto_handle);
 	}
 
 	if (radio_trx && next_radio_cmd) {
@@ -1039,7 +1027,7 @@ void isr_radio(void)
 		next_radio_cmd->startTime = cntr_cnt_get();
 
 		driver_data->active_command_handle =
-			RF_postCmd(rfHandle, (RF_Op *)next_radio_cmd,
+			RF_postCmd(rfBleHandle, (RF_Op *)next_radio_cmd,
 				   RF_PriorityNormal, rf_callback, RF_EVENT_MASK);
 		next_radio_cmd = NULL;
 	}
@@ -1066,7 +1054,7 @@ static void rat_deferred_hcto_callback(RF_Handle h, RF_RatHandle rh,
 				       RF_EventMask e, uint32_t compareCaptureTime)
 {
 	LOG_DBG("now: %u", cntr_cnt_get());
-	RF_cancelCmd(rfHandle, driver_data->active_command_handle, RF_ABORT_GRACEFULLY);
+	RF_cancelCmd(rfBleHandle, driver_data->active_command_handle, RF_ABORT_GRACEFULLY);
 	driver_data->active_command_handle = -1;
 }
 
@@ -1080,7 +1068,7 @@ static void ble_cc13xx_cc26xx_data_init(void)
 	    sys_memcpy_swap(driver_data->device_address, (uint8_t *)(CCFG_BASE + CCFG_O_IEEE_BLE_0), 6);
     }
 
-	LOG_DBG("device address: %02x:%02x:%02x:%02x:%02x:%02x", 
+	LOG_INF("device address: %02x:%02x:%02x:%02x:%02x:%02x", 
             driver_data->device_address[0], driver_data->device_address[1],
 	        driver_data->device_address[2], driver_data->device_address[3], 
             driver_data->device_address[4], driver_data->device_address[5]);
@@ -1173,22 +1161,22 @@ static void get_isr_latency(void)
 
 void radio_setup(void)
 {
-	RF_Params rfParams;
+	RF_Params rfBleParams;
 
-	RF_Params_init(&rfParams);
+	RF_Params_init(&rfBleParams);
 
 	ble_cc13xx_cc26xx_data_init();
 
-	rfHandle = RF_open(&rfObject, &RF_modeBle,
-			   (RF_RadioSetup *)&driver_data->cmd_ble_radio_setup,
-			   &rfParams);
-	LL_ASSERT(rfHandle);
+	rfBleHandle = RF_open(&rfObject, &RF_modeBle, 
+               (RF_RadioSetup*)&driver_data->cmd_ble_radio_setup, 
+               &rfBleParams);
+	LL_ASSERT(rfBleHandle);
 
 	driver_data->cmd_set_frequency.frequency = channel_table[0].frequency;
 	driver_data->cmd_set_frequency.fractFreq = 0x0000;
 	driver_data->whiten = channel_table[0].whitening;
 	driver_data->chan = 37;
-	RF_runCmd(rfHandle, (RF_Op *)&driver_data->cmd_set_frequency,
+	RF_runCmd(rfBleHandle, (RF_Op *)&driver_data->cmd_set_frequency,
 		  RF_PriorityNormal, NULL, RF_EventLastCmdDone);
 
 	/* Get warmpup times. They are used in TIFS calculations */
@@ -1233,7 +1221,7 @@ void radio_phy_set(uint8_t phy, uint8_t flags)
 
 void radio_tx_power_set(int8_t power)
 {
-	RF_setTxPower(rfHandle,
+	RF_setTxPower(rfBleHandle,
 		      RF_TxPowerTable_findValue(
 			      (RF_TxPowerTable_Entry *)RF_BLE_txPowerTable,
 			      power));
@@ -1241,7 +1229,7 @@ void radio_tx_power_set(int8_t power)
 
 void radio_tx_power_max_set(void)
 {
-	RF_setTxPower(rfHandle,
+	RF_setTxPower(rfBleHandle,
 		      RF_TxPowerTable_findValue(
 			      (RF_TxPowerTable_Entry *)RF_BLE_txPowerTable,
 			      RF_TxPowerTable_MAX_DBM));
@@ -1572,7 +1560,7 @@ void radio_disable(void)
 	RFCDoorbellSendTo((uint32_t)&driver_data->cmd_clear_rx);
 
 	/* generate interrupt to get into isr_radio */
-	RF_postCmd(rfHandle, (RF_Op *)&driver_data->cmd_nop, RF_PriorityNormal,
+	RF_postCmd(rfBleHandle, (RF_Op *)&driver_data->cmd_nop, RF_PriorityNormal,
 		   rf_callback, RF_EventLastCmdDone);
 
 	next_radio_cmd = NULL;
@@ -1686,7 +1674,7 @@ void radio_switch_complete_and_tx(uint8_t phy_rx, uint8_t flags_rx,
 
 void radio_switch_complete_and_disable(void)
 {
-	RF_ratDisableChannel(rfHandle, driver_data->rat_hcto_handle);
+	RF_ratDisableChannel(rfBleHandle, driver_data->rat_hcto_handle);
 	next_radio_cmd = NULL;
 }
 
@@ -1869,7 +1857,7 @@ static uint32_t radio_tmr_start_hlp(uint8_t trx, uint32_t ticks_start, uint32_t 
 			radio_start_now_cmd->startTrigger.pastTrig = true;
 		}
 		driver_data->active_command_handle =
-			RF_postCmd(rfHandle, (RF_Op *)radio_start_now_cmd,
+			RF_postCmd(rfBleHandle, (RF_Op *)radio_start_now_cmd,
 				   RF_PriorityNormal, rf_callback, RF_EVENT_MASK);
 	} else {
 		if (next_radio_cmd != NULL) {
@@ -1884,7 +1872,7 @@ static uint32_t radio_tmr_start_hlp(uint8_t trx, uint32_t ticks_start, uint32_t 
 				next_radio_cmd->startTrigger.pastTrig = true;
 			}
 			driver_data->active_command_handle =
-				RF_postCmd(rfHandle, (RF_Op *)next_radio_cmd,
+				RF_postCmd(rfBleHandle, (RF_Op *)next_radio_cmd,
 					   RF_PriorityNormal, rf_callback,
 					   RF_EVENT_MASK);
 		}
@@ -1946,7 +1934,7 @@ void radio_tmr_hcto_configure(uint32_t hcto)
 
 	/* 0b1001..RX Stop @ T2 Timer Compare Match (EVENT_TMR = T2_CMP) */
 	driver_data->rat_hcto_handle =
-		RF_ratCompare(rfHandle, &driver_data->rat_hcto_compare, NULL);
+		RF_ratCompare(rfBleHandle, &driver_data->rat_hcto_compare, NULL);
 }
 
 void radio_tmr_aa_capture(void)
