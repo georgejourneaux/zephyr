@@ -1075,9 +1075,8 @@ static int prepare_cb(struct lll_prepare_param *p)
 #if defined(CONFIG_BT_PERIPHERAL)
 static int resume_prepare_cb(struct lll_prepare_param *p)
 {
-	struct ull_hdr *ull;
+	struct ull_hdr *ull = HDR_LLL2ULL(p->param);
 
-	ull = HDR_LLL2ULL(p->param);
 	p->ticks_at_expire = ticker_ticks_now_get() - lll_event_offset_get(ull);
 	p->remainder = 0;
 	p->lazy = 0;
@@ -1297,7 +1296,7 @@ isr_rx_do_close:
 
 static void isr_done(void *param)
 {
-	struct lll_adv *lll;
+	struct lll_adv *lll = param;
 
 	/* Clear radio status and events */
 	lll_isr_status_reset();
@@ -1308,8 +1307,6 @@ static void isr_done(void *param)
 		_radio.mesh_adv_end_us = radio_tmr_end_get();
 	}
 #endif /* CONFIG_BT_HCI_MESH_EXT */
-
-	lll = param;
 
 #if defined(CONFIG_BT_PERIPHERAL)
 	if (!IS_ENABLED(CONFIG_BT_CTLR_LOW_LAT) && lll->is_hdcd &&
@@ -1627,7 +1624,7 @@ static inline int isr_rx_pdu(struct lll_adv *lll,
 
 #if defined(CONFIG_BT_CTLR_CONN_RSSI)
 		if (rssi_ready) {
-			lll->conn->rssi_latest =  radio_rssi_get();
+			lll->conn->rssi_latest = radio_rssi_get();
 		}
 #endif /* CONFIG_BT_CTLR_CONN_RSSI */
 

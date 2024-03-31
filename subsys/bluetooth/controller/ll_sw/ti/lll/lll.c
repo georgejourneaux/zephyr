@@ -117,13 +117,16 @@ ISR_DIRECT_DECLARE(radio_cc13xx_cc26xx_isr)
 
 static void rtc0_cc13xx_cc26xx_isr(const void *arg)
 {
+	if (AONRTCEventGet(AON_RTC_CH0)) {
+		rtc_isr(NULL);
+	}
+
 	DEBUG_TICKER_ISR(1);
 
 	lll_prof_enter_ull_high();
 
-    if (AONRTCEventGet(AON_RTC_CH0)) {
-		rtc_isr(NULL);
-
+	if (AONRTCEventGet(AON_RTC_CH1)) {
+		AONRTCEventClear(AON_RTC_CH1);
 		ticker_trigger(0);
 	}
 
