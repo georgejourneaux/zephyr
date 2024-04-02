@@ -52,32 +52,89 @@ LOG_MODULE_REGISTER(bt_ti_radio);
 /* CTEINLINE S0_MASK for periodic advertising PUDs. It allows to accept all types of extended
  * advertising PDUs to have CTE included.
  */
-#define DF_S0_ALLOW_ALL_PER_ADV_PDU 0x0
+#define DF_S0_ALLOW_ALL_PER_ADV_PDU (0x0)
 /* CTEINLINE S0_MASK for data channel PDUs. It points to CP bit in S0 byte to check if is it set
  * to 0x1. In that is true then S1 byte (CTEInfo) is considered as present in a PDU.
  */
-#define DF_S0_MASK_CP_BIT_IN_DATA_CHANNEL_PDU 0x20
+#define DF_S0_MASK_CP_BIT_IN_DATA_CHANNEL_PDU (0x20)
 
 /* Modifying these values could open a portal to The Upside-down */
-#define CC13XX_CC26XX_INCLUDE_LEN_BYTE 1
-#define CC13XX_CC26XX_INCLUDE_CRC 1
-#define CC13XX_CC26XX_APPEND_RSSI 1
-#define CC13XX_CC26XX_APPEND_TIMESTAMP 4
-#define CC13XX_CC26XX_ADDITIONAL_DATA_BYTES (0 + CC13XX_CC26XX_INCLUDE_LEN_BYTE + CC13XX_CC26XX_INCLUDE_CRC + \
-	                                         CC13XX_CC26XX_APPEND_RSSI + CC13XX_CC26XX_APPEND_TIMESTAMP)
+#define RF_RX_CONFIG_AUTO_FLUSH_IGNORED (1)
+#define RF_RX_CONFIG_AUTO_FLUSH_CRC_ERR (1)
+#define RF_RX_CONFIG_AUTO_FLUSH_EMPTY   (0)
+#define RF_RX_CONFIG_INCLUDE_LEN_BYTE   (1)
+#define RF_RX_CONFIG_INCLUDE_CRC        (1)
+#define RF_RX_CONFIG_APPEND_RSSI        (1)
+#define RF_RX_CONFIG_APPEND_STATUS      (0)
+#define RF_RX_CONFIG_APPEND_TIMESTAMP   (1)
 
-#define CC13XX_CC26XX_NUM_RX_BUF 2
-#define CC13XX_CC26XX_RX_BUF_SIZE (HAL_RADIO_PDU_LEN_MAX + CC13XX_CC26XX_ADDITIONAL_DATA_BYTES)
+#define RF_ADDITIONAL_DATA_BYTES (RF_RX_CONFIG_INCLUDE_LEN_BYTE \
+                                  + RF_RX_CONFIG_INCLUDE_CRC \
+	                              + RF_RX_CONFIG_APPEND_RSSI \
+                                  + RF_RX_CONFIG_APPEND_STATUS \
+                                  + RF_RX_CONFIG_APPEND_TIMESTAMP)
+                                  
+#define RF_RX_ENTRY_BUFFER_SIZE  (2)
+#define RF_RX_BUFFER_SIZE (HAL_RADIO_PDU_LEN_MAX + RF_ADDITIONAL_DATA_BYTES)
 
-#define CC13XX_CC26XX_NUM_TX_BUF 2
-#define CC13XX_CC26XX_TX_BUF_SIZE HAL_RADIO_PDU_LEN_MAX
+#define RF_TX_ENTRY_BUFFER_SIZE  (2)
+#define RF_TX_BUFFER_SIZE HAL_RADIO_PDU_LEN_MAX
 
 #define RF_EVENT_MASK (RF_EventLastCmdDone | RF_EventTxDone | RF_EventRxEntryDone | RF_EventRxEmpty | RF_EventRxOk | RF_EventRxNOk)
 
-#define TX_MARGIN 0
-#define RX_MARGIN 8
-#define Rx_OVHD 32 /* Rx overhead, depends on PHY type */
-#define MIN_CMD_TIME 400 /* Minimum interval for a delayed radio cmd */
+#define TXPOWERTABLE_2400_PA5_SIZE (16) // 2400 MHz, 5 dBm
+
+#define DEFAULT_CHANNEL (37) 
+
+#define TX_MARGIN    (0)
+#define RX_MARGIN    (8)
+#define Rx_OVHD      (32) /* Rx overhead, depends on PHY type */
+#define MIN_CMD_TIME (400) /* Minimum interval for a delayed radio cmd */
+
+typedef enum BLE_FREQUENCY_TABLE_ENTRY {
+    BLE_FREQUENCY_TABLE_ENTRY_2402 = 0,
+    BLE_FREQUENCY_TABLE_ENTRY_2404,
+    BLE_FREQUENCY_TABLE_ENTRY_2406,
+    BLE_FREQUENCY_TABLE_ENTRY_2408,
+    BLE_FREQUENCY_TABLE_ENTRY_2410,
+    BLE_FREQUENCY_TABLE_ENTRY_2412,
+    BLE_FREQUENCY_TABLE_ENTRY_2414,
+    BLE_FREQUENCY_TABLE_ENTRY_2416,
+    BLE_FREQUENCY_TABLE_ENTRY_2418,
+    BLE_FREQUENCY_TABLE_ENTRY_2420,
+    BLE_FREQUENCY_TABLE_ENTRY_2422,
+    BLE_FREQUENCY_TABLE_ENTRY_2424,
+    BLE_FREQUENCY_TABLE_ENTRY_2426,
+    BLE_FREQUENCY_TABLE_ENTRY_2428,
+    BLE_FREQUENCY_TABLE_ENTRY_2430,
+    BLE_FREQUENCY_TABLE_ENTRY_2432,
+    BLE_FREQUENCY_TABLE_ENTRY_2434,
+    BLE_FREQUENCY_TABLE_ENTRY_2436,
+    BLE_FREQUENCY_TABLE_ENTRY_2438,
+    BLE_FREQUENCY_TABLE_ENTRY_2440,
+    BLE_FREQUENCY_TABLE_ENTRY_2442,
+    BLE_FREQUENCY_TABLE_ENTRY_2444,
+    BLE_FREQUENCY_TABLE_ENTRY_2446,
+    BLE_FREQUENCY_TABLE_ENTRY_2448,
+    BLE_FREQUENCY_TABLE_ENTRY_2450,
+    BLE_FREQUENCY_TABLE_ENTRY_2452,
+    BLE_FREQUENCY_TABLE_ENTRY_2454,
+    BLE_FREQUENCY_TABLE_ENTRY_2456,
+    BLE_FREQUENCY_TABLE_ENTRY_2458,
+    BLE_FREQUENCY_TABLE_ENTRY_2460,
+    BLE_FREQUENCY_TABLE_ENTRY_2462,
+    BLE_FREQUENCY_TABLE_ENTRY_2464,
+    BLE_FREQUENCY_TABLE_ENTRY_2466,
+    BLE_FREQUENCY_TABLE_ENTRY_2468,
+    BLE_FREQUENCY_TABLE_ENTRY_2470,
+    BLE_FREQUENCY_TABLE_ENTRY_2472,
+    BLE_FREQUENCY_TABLE_ENTRY_2474,
+    BLE_FREQUENCY_TABLE_ENTRY_2476,
+    BLE_FREQUENCY_TABLE_ENTRY_2478,
+    BLE_FREQUENCY_TABLE_ENTRY_2480,
+
+    BLE_FREQUENCY_TABLE_SIZE,
+} ble_frequency_table_entry_t;
 
 typedef struct isr_radio_param {
 	RF_Handle h;
@@ -85,90 +142,259 @@ typedef struct isr_radio_param {
 	RF_EventMask e;
 } isr_radio_param_t;
 
+typedef struct ble_cc13xx_cc26xx_rf_rx_data {
+    dataQueue_t queue;
+	rfc_dataEntryPointer_t entry[RF_RX_ENTRY_BUFFER_SIZE];
+	uint8_t data[RF_RX_ENTRY_BUFFER_SIZE][RF_RX_BUFFER_SIZE] __aligned(4);
+} ble_cc13xx_cc26xx_rf_rx_data_t;
+
+typedef struct ble_cc13xx_cc26xx_rf_tx_data {
+	dataQueue_t queue;
+	rfc_dataEntryPointer_t entry[RF_TX_ENTRY_BUFFER_SIZE];
+	uint8_t data[RF_TX_ENTRY_BUFFER_SIZE][RF_TX_BUFFER_SIZE] __aligned(4);
+} ble_cc13xx_cc26xx_rf_tx_data_t;
+
+typedef struct ble_cc13xx_cc26xx_rf_rat {
+    RF_RatConfigCompare hcto_compare;
+	RF_RatHandle hcto_handle;
+} ble_cc13xx_cc26xx_rf_rat_t;
+
+typedef struct ble_cc13xx_cc26xx_rf_cmd {
+	RF_CmdHandle active_handle;
+
+	rfc_CMD_NOP_t nop;
+	rfc_CMD_FS_t set_frequency;
+	rfc_CMD_CLEAR_RX_t clear_rx;
+
+	rfc_CMD_BLE5_RADIO_SETUP_t ble5_radio_setup;
+
+	rfc_bleAdvPar_t _ble_adv_param;
+	rfc_bleAdvOutput_t _ble_adv_output;
+    rfc_CMD_BLE5_ADV_t ble5_adv;
+	rfc_CMD_BLE_ADV_PAYLOAD_t ble_adv_payload;
+
+	rfc_bleGenericRxPar_t _ble_generic_rx_param;
+	rfc_bleGenericRxOutput_t _ble_generic_rx_output;
+	rfc_CMD_BLE5_GENERIC_RX_t ble5_generic_rx;
+
+	rfc_ble5SlavePar_t _ble5_slave_param;
+	rfc_bleMasterSlaveOutput_t _ble_slave_output;
+	rfc_CMD_BLE5_SLAVE_t ble5_slave;
+} ble_cc13xx_cc26xx_rf_cmd_t;
+
+typedef struct ble_cc13xx_cc26xx_rf {
+    ble_cc13xx_cc26xx_rf_rx_data_t rx;
+    ble_cc13xx_cc26xx_rf_tx_data_t tx;
+    ble_cc13xx_cc26xx_rf_rat_t rat;
+    ble_cc13xx_cc26xx_rf_cmd_t cmd;
+} ble_cc13xx_cc26xx_rf_t;
+
 typedef struct ble_cc13xx_cc26xx_data {
 	uint8_t device_address[6];
 	uint32_t access_address;
 	uint32_t polynomial;
 	uint32_t iv;
 	uint8_t whiten;
-	uint16_t chan;
+	uint16_t channel;
+
+    bool ignore_next_rx;
+	bool ignore_next_tx;
+
+    ble_cc13xx_cc26xx_rf_t rf;
+
 #if IS_ENABLED(CONFIG_BT_CTLR_ADV_EXT)
-	uint8_t adv_data[sizeof(
-		((struct pdu_adv_com_ext_adv *)0)->ext_hdr_adi_adv_data)];
+	uint8_t adv_data[sizeof(((struct pdu_adv_com_ext_adv *)0)->ext_hdr_adi_adv_data)];
 #else
 	uint8_t adv_data[sizeof((struct pdu_adv_adv_ind *)0)->data];
 #endif
 	uint8_t adv_data_len;
 
 #if IS_ENABLED(CONFIG_BT_CTLR_ADV_EXT)
-	uint8_t scan_rsp_data[sizeof(
-		((struct pdu_adv_com_ext_adv *)0)->ext_hdr_adi_adv_data)];
+	uint8_t scan_rsp_data[sizeof(((struct pdu_adv_com_ext_adv *)0)->ext_hdr_adi_adv_data)];
 #else
 	uint8_t scan_rsp_data[sizeof((struct pdu_adv_scan_rsp *)0)->data];
 #endif
 	uint8_t scan_rsp_data_len;
-
-	RF_EventMask rx_mask;
-
-	dataQueue_t rx_queue;
-	rfc_dataEntryPointer_t rx_entry[CC13XX_CC26XX_NUM_RX_BUF];
-	uint8_t rx_data[CC13XX_CC26XX_NUM_RX_BUF]
-		    [CC13XX_CC26XX_RX_BUF_SIZE] __aligned(4);
-
-	dataQueue_t tx_queue;
-	rfc_dataEntryPointer_t tx_entry[CC13XX_CC26XX_NUM_TX_BUF];
-	uint8_t tx_data[CC13XX_CC26XX_NUM_TX_BUF]
-		    [CC13XX_CC26XX_TX_BUF_SIZE] __aligned(4);
-
-	RF_CmdHandle active_command_handle;
-
-	RF_RatConfigCompare rat_hcto_compare;
-	RF_RatHandle rat_hcto_handle;
 
 #if defined(CONFIG_BT_CTLR_DEBUG_PINS)
 	uint32_t window_begin_ticks;
 	uint32_t window_duration_ticks;
 	uint32_t window_interval_ticks;
 #endif /* defined(CONFIG_BT_CTLR_DEBUG_PINS) */
-
-	bool ignore_next_rx;
-	bool ignore_next_tx;
-
-	rfc_CMD_GET_FW_INFO_t cmd_get_fw_info;
-
-	rfc_CMD_BLE5_RADIO_SETUP_t cmd_ble_radio_setup;
-
-	rfc_CMD_FS_t cmd_set_frequency;
-
-	rfc_CMD_BLE_ADV_t cmd_ble_adv;
-	rfc_bleAdvPar_t cmd_ble_adv_param;
-	rfc_bleAdvOutput_t cmd_ble_adv_output;
-
-	rfc_CMD_BLE_GENERIC_RX_t cmd_ble_generic_rx;
-	rfc_bleGenericRxPar_t cmd_ble_generic_rx_param;
-	rfc_bleGenericRxOutput_t cmd_ble_generic_rx_output;
-
-	rfc_CMD_NOP_t cmd_nop;
-	rfc_CMD_CLEAR_RX_t cmd_clear_rx;
-	rfc_CMD_BLE_ADV_PAYLOAD_t cmd_ble_adv_payload;
-
-	rfc_CMD_BLE_SLAVE_t cmd_ble_slave;
-	rfc_bleSlavePar_t cmd_ble_slave_param;
-	rfc_bleMasterSlaveOutput_t cmd_ble_slave_output;
 } ble_cc13xx_cc26xx_data_t;
 
-typedef struct cc13xx_cc26xx_channel_table {
-    uint16_t frequency;
-    uint8_t whitening;
-} cc13xx_cc26xx_channel_table_t;
+typedef struct cc13xx_cc26xx_frequency_table_entry {
+    const uint16_t frequency;
+    const uint8_t whitening;
+} cc13xx_cc26xx_frequency_table_entry_t;
+
+#if !(defined(CONFIG_PM) || defined(CONFIG_PM_DEVICE) || defined(CONFIG_POWEROFF))
+const PowerCC26X2_Config PowerCC26X2_config = {
+	.policyInitFxn = NULL,
+	.policyFxn = &PowerCC26XX_doWFI,
+	.calibrateFxn = &PowerCC26XX_calibrate,
+	.enablePolicy = true,
+	.calibrateRCOSC_LF = true,
+	.calibrateRCOSC_HF = true,
+};
+#endif
 
 static RF_Object rfObject;
 static RF_Handle rfBleHandle;
 static RF_Mode RF_modeBle = {
-	.rfMode = RF_MODE_MULTIPLE,
+	.rfMode = RF_MODE_AUTO,
 	.cpePatchFxn = &rf_patch_cpe_multi_protocol,
 	.mcePatchFxn = 0,
 	.rfePatchFxn = 0,
+};
+
+// Overrides for CMD_BLE5_RADIO_SETUP
+uint32_t pOverrides_bleCommon[] =
+{
+    // DC/DC regulator: In Tx, use DCDCCTL5[3:0]=0x3 (DITHER_EN=0 and IPEAK=3).
+    (uint32_t)0x00F388D3,
+    // Bluetooth 5: Set pilot tone length to 20 us Common
+    HW_REG_OVERRIDE(0x6024,0x2E20),
+    // Bluetooth 5: Compensate for reduced pilot tone length
+    (uint32_t)0x01280263,
+    // Bluetooth 5: Default to no CTE. 
+    HW_REG_OVERRIDE(0x5328,0x0000),
+    // Synth: Increase mid code calibration time to 5 us
+    (uint32_t)0x00058683,
+    // Synth: Increase mid code calibration time to 5 us
+    HW32_ARRAY_OVERRIDE(0x4004,1),
+    // Synth: Increase mid code calibration time to 5 us
+    (uint32_t)0x38183C30,
+    // Bluetooth 5: Move synth start code
+    HW_REG_OVERRIDE(0x4064,0x3C),
+    // Bluetooth 5: Set DTX gain -5% for 1 Mbps
+    (uint32_t)0x00E787E3,
+    // Bluetooth 5: Set DTX threshold 1 Mbps
+    (uint32_t)0x00950803,
+    // Bluetooth 5: Set DTX gain -2.5% for 2 Mbps
+    (uint32_t)0x00F487F3,
+    // Bluetooth 5: Set DTX threshold 2 Mbps
+    (uint32_t)0x012A0823,
+    // Bluetooth 5: Set synth fine code calibration interval
+    HW32_ARRAY_OVERRIDE(0x4020,1),
+    // Bluetooth 5: Set synth fine code calibration interval
+    (uint32_t)0x41005F00,
+    // Bluetooth 5: Adapt to synth fine code calibration interval
+    (uint32_t)0xC0040141,
+    // Bluetooth 5: Adapt to synth fine code calibration interval
+    (uint32_t)0x0007DD44,
+    // Bluetooth 5: Set enhanced TX shape
+    (uint32_t)0x000D8C73,
+    (uint32_t)0xFFFFFFFF
+};
+
+// Overrides for CMD_BLE5_RADIO_SETUP
+uint32_t pOverrides_ble1Mbps[] =
+{
+    // Bluetooth 5: Set pilot tone length to 20 us
+    HW_REG_OVERRIDE(0x5320,0x03C0),
+    // Bluetooth 5: Compensate syncTimeadjust
+    (uint32_t)0x015302A3,
+    // Symbol tracking: timing correction
+    HW_REG_OVERRIDE(0x50D4,0x00F9),
+    // Symbol tracking: reduce sample delay
+    HW_REG_OVERRIDE(0x50E0,0x0087),
+    // Symbol tracking: demodulation order
+    HW_REG_OVERRIDE(0x50F8,0x0014),
+    (uint32_t)0xFFFFFFFF
+};
+
+// Overrides for CMD_BLE5_RADIO_SETUP
+uint32_t pOverrides_ble2Mbps[] =
+{
+    // Bluetooth 5: Set pilot tone length to 20 us
+    HW_REG_OVERRIDE(0x5320,0x03C0),
+    // Bluetooth 5: Compensate syncTimeAdjust
+    (uint32_t)0x00F102A3,
+    // Bluetooth 5: increase low gain AGC delay for 2 Mbps
+    HW_REG_OVERRIDE(0x60A4,0x7D00),
+    // Symbol tracking: timing correction
+    HW_REG_OVERRIDE(0x50D4,0x00F9),
+    // Symbol tracking: reduce sample delay
+    HW_REG_OVERRIDE(0x50E0,0x0087),
+    // Symbol tracking: demodulation order
+    HW_REG_OVERRIDE(0x50F8,0x0014),
+    (uint32_t)0xFFFFFFFF
+};
+
+// Overrides for CMD_BLE5_RADIO_SETUP
+uint32_t pOverrides_bleCoded[] =
+{
+    // Bluetooth 5: Set pilot tone length to 20 us
+    HW_REG_OVERRIDE(0x5320,0x03C0),
+    // Bluetooth 5: Compensate syncTimeadjust
+    (uint32_t)0x07A902A3,
+    // Rx: Set AGC reference level to 0x21 (default: 0x2E)
+    HW_REG_OVERRIDE(0x609C,0x0021),
+    (uint32_t)0xFFFFFFFF
+};
+
+static const cc13xx_cc26xx_frequency_table_entry_t channel_table[BLE_FREQUENCY_TABLE_SIZE] = {
+    [BLE_FREQUENCY_TABLE_ENTRY_2402] = {.frequency = 2402, .whitening = 0xE5}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2404] = {.frequency = 2404, .whitening = 0xC0}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2406] = {.frequency = 2406, .whitening = 0xC1}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2408] = {.frequency = 2408, .whitening = 0xC2},
+    [BLE_FREQUENCY_TABLE_ENTRY_2410] = {.frequency = 2410, .whitening = 0xC3}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2412] = {.frequency = 2412, .whitening = 0xC4}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2414] = {.frequency = 2414, .whitening = 0xC5}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2416] = {.frequency = 2416, .whitening = 0xC6},
+    [BLE_FREQUENCY_TABLE_ENTRY_2418] = {.frequency = 2418, .whitening = 0xC7}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2420] = {.frequency = 2420, .whitening = 0xC8}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2422] = {.frequency = 2422, .whitening = 0xC9}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2424] = {.frequency = 2424, .whitening = 0xCA},
+    [BLE_FREQUENCY_TABLE_ENTRY_2426] = {.frequency = 2426, .whitening = 0xE6}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2428] = {.frequency = 2428, .whitening = 0xCB}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2430] = {.frequency = 2430, .whitening = 0xCC}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2432] = {.frequency = 2432, .whitening = 0xCD},
+    [BLE_FREQUENCY_TABLE_ENTRY_2434] = {.frequency = 2434, .whitening = 0xCE}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2436] = {.frequency = 2436, .whitening = 0xCF}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2438] = {.frequency = 2438, .whitening = 0xD0}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2440] = {.frequency = 2440, .whitening = 0xD1},
+    [BLE_FREQUENCY_TABLE_ENTRY_2442] = {.frequency = 2442, .whitening = 0xD2}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2444] = {.frequency = 2444, .whitening = 0xD3}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2446] = {.frequency = 2446, .whitening = 0xD4}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2448] = {.frequency = 2448, .whitening = 0xD5},
+    [BLE_FREQUENCY_TABLE_ENTRY_2450] = {.frequency = 2450, .whitening = 0xD6}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2452] = {.frequency = 2452, .whitening = 0xD7}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2454] = {.frequency = 2454, .whitening = 0xD8}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2456] = {.frequency = 2456, .whitening = 0xD9},
+    [BLE_FREQUENCY_TABLE_ENTRY_2458] = {.frequency = 2458, .whitening = 0xDA}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2460] = {.frequency = 2460, .whitening = 0xDB}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2462] = {.frequency = 2462, .whitening = 0xDC}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2464] = {.frequency = 2464, .whitening = 0xDD},
+    [BLE_FREQUENCY_TABLE_ENTRY_2466] = {.frequency = 2466, .whitening = 0xDE}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2468] = {.frequency = 2468, .whitening = 0xDF}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2470] = {.frequency = 2470, .whitening = 0xE0}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2472] = {.frequency = 2472, .whitening = 0xE1},
+    [BLE_FREQUENCY_TABLE_ENTRY_2474] = {.frequency = 2474, .whitening = 0xE2}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2476] = {.frequency = 2476, .whitening = 0xE3}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2478] = {.frequency = 2478, .whitening = 0xE4}, 
+    [BLE_FREQUENCY_TABLE_ENTRY_2480] = {.frequency = 2480, .whitening = 0xE7}
+};
+
+static const RF_TxPowerTable_Entry RF_BLE_txPowerTable[TXPOWERTABLE_2400_PA5_SIZE] =
+{
+    {-20, RF_TxPowerTable_DEFAULT_PA_ENTRY(6, 3, 0, 2) }, // 0x04C6
+    {-18, RF_TxPowerTable_DEFAULT_PA_ENTRY(8, 3, 0, 3) }, // 0x06C8
+    {-15, RF_TxPowerTable_DEFAULT_PA_ENTRY(10, 3, 0, 3) }, // 0x06CA
+    {-12, RF_TxPowerTable_DEFAULT_PA_ENTRY(12, 3, 0, 5) }, // 0x0ACC
+    {-10, RF_TxPowerTable_DEFAULT_PA_ENTRY(15, 3, 0, 5) }, // 0x0ACF
+    {-9, RF_TxPowerTable_DEFAULT_PA_ENTRY(16, 3, 0, 5) }, // 0x0AD0
+    {-6, RF_TxPowerTable_DEFAULT_PA_ENTRY(20, 3, 0, 8) }, // 0x10D4
+    {-5, RF_TxPowerTable_DEFAULT_PA_ENTRY(22, 3, 0, 9) }, // 0x12D6
+    {-3, RF_TxPowerTable_DEFAULT_PA_ENTRY(19, 2, 0, 12) }, // 0x1893
+    {0, RF_TxPowerTable_DEFAULT_PA_ENTRY(19, 1, 0, 20) }, // 0x2853
+    {1, RF_TxPowerTable_DEFAULT_PA_ENTRY(22, 1, 0, 20) }, // 0x2856
+    {2, RF_TxPowerTable_DEFAULT_PA_ENTRY(25, 1, 0, 25) }, // 0x3259
+    {3, RF_TxPowerTable_DEFAULT_PA_ENTRY(29, 1, 0, 28) }, // 0x385D
+    {4, RF_TxPowerTable_DEFAULT_PA_ENTRY(35, 1, 0, 39) }, // 0x4E63
+    {5, RF_TxPowerTable_DEFAULT_PA_ENTRY(23, 0, 0, 57) }, // 0x7217
+    RF_TxPowerTable_TERMINATION_ENTRY
 };
 
 static uint32_t timer_aa = 0; /* AA (Access Address) timestamp saved value */
@@ -206,213 +432,294 @@ static uint32_t payload_max_size;
 static bool crc_valid = true;
 
 static uint8_t MALIGN(4) _pkt_empty[PDU_EM_LL_SIZE_MAX];
-static uint8_t MALIGN(4) _pkt_scratch[MAX((HAL_RADIO_PDU_LEN_MAX + 3),
-				       PDU_AC_LL_SIZE_MAX)];
-
-/* Overrides for CMD_BLE5_RADIO_SETUP */
-static uint32_t pOverridesCommon[] = {
-	(uint32_t)0x00F388D3,
-	/* Bluetooth 5: Set pilot tone length to 20 us Common */
-	HW_REG_OVERRIDE(0x6024, 0x2E20),
-	/* Bluetooth 5: Compensate for reduced pilot tone length */
-	(uint32_t)0x01280263,
-	/* Bluetooth 5: Default to no CTE. */
-	HW_REG_OVERRIDE(0x5328, 0x0000), (uint32_t)0xFFFFFFFF
-};
-
-/* Overrides for CMD_BLE5_RADIO_SETUP */
-static uint32_t pOverrides1Mbps[] = {
-	/* Bluetooth 5: Set pilot tone length to 20 us */
-	HW_REG_OVERRIDE(0x5320, 0x03C0),
-	/* Bluetooth 5: Compensate syncTimeadjust */
-	(uint32_t)0x015302A3, (uint32_t)0xFFFFFFFF
-};
-
-/* Overrides for CMD_BLE5_RADIO_SETUP */
-static uint32_t pOverrides2Mbps[] = {
-	/* Bluetooth 5: Set pilot tone length to 20 us */
-	HW_REG_OVERRIDE(0x5320, 0x03C0),
-	/* Bluetooth 5: Compensate syncTimeAdjust */
-	(uint32_t)0x00F102A3, (uint32_t)0xFFFFFFFF
-};
-
-/* Overrides for CMD_BLE5_RADIO_SETUP */
-static uint32_t pOverridesCoded[] = {
-	/* Bluetooth 5: Set pilot tone length to 20 us */
-	HW_REG_OVERRIDE(0x5320, 0x03C0),
-	/* Bluetooth 5: Compensate syncTimeadjust */
-	(uint32_t)0x07A902A3,
-	/* Rx: Set AGC reference level to 0x1B (default: 0x2E) */
-	HW_REG_OVERRIDE(0x609C, 0x001B), (uint32_t)0xFFFFFFFF
-};
+static uint8_t MALIGN(4) _pkt_scratch[MAX((HAL_RADIO_PDU_LEN_MAX + 3), PDU_AC_LL_SIZE_MAX)];
 
 static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
+	.device_address[0 ... 5] = 0xFF,
+	.access_address          = 0xFFFFFFFF,
+	.polynomial              = 0,
+	.iv                      = 0,
+	.whiten                  = channel_table[BLE_FREQUENCY_TABLE_ENTRY_2440].whitening,
+	.channel                 = DEFAULT_CHANNEL,
 
-	/* clang-format off */
-	.cmd_set_frequency = {
-		.commandNo = CMD_FS,
-		.startTrigger = {
-			.triggerType = TRIG_NOW,
-		},
-		.condition = {
-			.rule = COND_NEVER,
-		},
-	},
+    .ignore_next_rx = false,
+	.ignore_next_tx = false,
 
-	.cmd_ble_radio_setup = {
-		.commandNo = CMD_BLE5_RADIO_SETUP,
-		.startTrigger = {
-			.triggerType = TRIG_NOW,
-		},
-		.condition = {
-			.rule = COND_NEVER,
-		},
-		.config = {
-			.biasMode = 0x1,
-		},
-		.txPower = 0x7217,
-		.pRegOverrideCommon = pOverridesCommon,
-		.pRegOverride1Mbps = pOverrides1Mbps,
-		.pRegOverride2Mbps = pOverrides2Mbps,
-		.pRegOverrideCoded = pOverridesCoded,
-	},
+    .rf.rx  = {
+        .queue = {NULL},
+        .entry[0 ... (RF_RX_ENTRY_BUFFER_SIZE - 1)] = {0},
+        .data[0 ... (RF_RX_ENTRY_BUFFER_SIZE - 1)][0 ... (RF_RX_BUFFER_SIZE - 1)] = 0,
+    },
+    .rf.tx  = {
+        .queue = {NULL},
+        .entry[0 ... (RF_TX_ENTRY_BUFFER_SIZE - 1)] = {0},
+        .data[0 ... (RF_TX_ENTRY_BUFFER_SIZE - 1)][0 ... (RF_TX_BUFFER_SIZE - 1)] = 0,
+    },
+    .rf.rat = {
+        .hcto_compare = {0},
+        .hcto_handle = 0,
+    },
+    .rf.cmd = {
+        .set_frequency = {
+            .commandNo                = CMD_FS,
+            .status                   = IDLE,
+            .pNextOp                  = NULL,
+            .startTime                = 0,
+            .startTrigger.triggerType = TRIG_NOW,
+            .startTrigger.bEnaCmd     = 0,
+            .startTrigger.triggerNo   = 0,
+            .startTrigger.pastTrig    = 0,
+            .condition.rule           = COND_NEVER,
+            .condition.nSkip          = COND_ALWAYS,
+            .frequency                = channel_table[BLE_FREQUENCY_TABLE_ENTRY_2440].frequency,
+            .fractFreq                = 0,
+            .synthConf.bTxMode        = 0,
+            .synthConf.refFreq        = 0,
+            .__dummy0                 = 0,
+            .__dummy1                 = 0,
+            .__dummy2                 = 0,
+            .__dummy3                 = 0
+        },
 
-	.cmd_ble_adv = {
-		.pParams = (rfc_bleAdvPar_t *)&ble_cc13xx_cc26xx_data
-				   .cmd_ble_adv_param,
-		.pOutput = (rfc_bleAdvOutput_t *)&ble_cc13xx_cc26xx_data
-				   .cmd_ble_adv_output,
-		.condition = {
-			.rule = TRIG_NEVER,
-		},
-	},
+        .nop = {
+            .commandNo                = CMD_NOP,
+            .status                   = IDLE,
+            .pNextOp                  = NULL,
+            .startTime                = 0,
+            .startTrigger.triggerType = TRIG_NOW,
+            .startTrigger.bEnaCmd     = 0,
+            .startTrigger.triggerNo   = 0,
+            .startTrigger.pastTrig    = 0,
+            .condition.rule           = COND_NEVER,
+            .condition.nSkip          = COND_ALWAYS,
+        },
 
-	.cmd_ble_adv_param = {
-		.pRxQ = &ble_cc13xx_cc26xx_data.rx_queue,
-		.rxConfig = {
-			.bAutoFlushIgnored = true,
-			.bAutoFlushCrcErr = true,
-			/* SCAN_REQ will be discarded if true! */
-			.bAutoFlushEmpty = false,
-			.bIncludeLenByte = !!CC13XX_CC26XX_INCLUDE_LEN_BYTE,
-			.bIncludeCrc = !!CC13XX_CC26XX_INCLUDE_CRC,
-			.bAppendRssi = !!CC13XX_CC26XX_APPEND_RSSI,
-			.bAppendTimestamp = !!CC13XX_CC26XX_APPEND_TIMESTAMP,
-		},
-		.advConfig = {
-			/* Support Channel Selection Algorithm #2 */
-			.chSel = IS_ENABLED(CONFIG_BT_CTLR_CHAN_SEL_2),
-		},
-		.endTrigger = {
-			.triggerType = TRIG_NEVER,
-		},
-	},
+        .clear_rx = {
+            .commandNo = CMD_CLEAR_RX,
+            .__dummy0  = 0,
+            .pQueue    = &ble_cc13xx_cc26xx_data.rf.rx.queue,
+        },
 
-	.cmd_ble_generic_rx = {
-		.commandNo = CMD_BLE_GENERIC_RX,
-		.condition = {
-			.rule = COND_NEVER,
-		},
-		.pParams = (rfc_bleGenericRxPar_t *)&ble_cc13xx_cc26xx_data
-			.cmd_ble_generic_rx_param,
-		.pOutput = (rfc_bleGenericRxOutput_t *)&ble_cc13xx_cc26xx_data
-			.cmd_ble_generic_rx_output,
-	},
+        .ble5_radio_setup = {
+            .commandNo                = CMD_BLE5_RADIO_SETUP,
+            .status                   = IDLE,
+            .pNextOp                  = NULL,
+            .startTime                = 0,
+            .startTrigger.triggerType = TRIG_NOW,
+            .startTrigger.bEnaCmd     = 0,
+            .startTrigger.triggerNo   = 0,
+            .startTrigger.pastTrig    = 0,
+            .condition.rule           = COND_NEVER,
+            .condition.nSkip          = COND_ALWAYS,
+            .defaultPhy.mainMode      = 0,
+            .defaultPhy.coding        = 0,
+            .loDivider                = 0,
+            .config.frontEndMode      = 0,
+            .config.biasMode          = 1,
+            .config.analogCfgMode     = 0,
+            .config.bNoFsPowerUp      = 0,
+            .config.bSynthNarrowBand  = 0,
+            .txPower                  = 0x7217,
+            .pRegOverrideCommon       = pOverrides_bleCommon,
+            .pRegOverride1Mbps        = pOverrides_ble1Mbps,
+            .pRegOverride2Mbps        = pOverrides_ble2Mbps,
+            .pRegOverrideCoded        = pOverrides_bleCoded
+        },
 
-	.cmd_ble_generic_rx_param = {
-		.pRxQ = &ble_cc13xx_cc26xx_data.rx_queue,
-		.rxConfig = {
-			.bAutoFlushIgnored = true,
-			.bAutoFlushCrcErr = true,
-			/* SCAN_REQ will be discarded if true! */
-			.bAutoFlushEmpty = false,
-			.bIncludeLenByte = !!CC13XX_CC26XX_INCLUDE_LEN_BYTE,
-			.bIncludeCrc = !!CC13XX_CC26XX_INCLUDE_CRC,
-			.bAppendRssi = !!CC13XX_CC26XX_APPEND_RSSI,
-			.bAppendTimestamp = !!CC13XX_CC26XX_APPEND_TIMESTAMP,
-		},
-		.endTrigger = {
-			.triggerType = TRIG_NEVER,
-		},
-	},
+        .ble5_adv = {
+            .commandNo                = CMD_BLE5_ADV,
+            .status                   = IDLE,
+            .pNextOp                  = NULL,
+            .startTime                = 0,
+            .startTrigger.triggerType = TRIG_NOW,
+            .startTrigger.bEnaCmd     = 0,
+            .startTrigger.triggerNo   = 0,
+            .startTrigger.pastTrig    = 0,
+            .condition.rule           = COND_NEVER,
+            .condition.nSkip          = COND_ALWAYS,
+            .channel                  = DEFAULT_CHANNEL,
+            .whitening.init           = 0,
+            .whitening.bOverride      = 0,
+            .phyMode.mainMode         = 0,
+            .phyMode.coding           = 0,
+            .rangeDelay               = 0,
+            .txPower                  = 0,
+            .pParams                  = &ble_cc13xx_cc26xx_data.rf.cmd._ble_adv_param,
+            .pOutput                  = &ble_cc13xx_cc26xx_data.rf.cmd._ble_adv_output,
+            .tx20Power                = 0,
+        },
+	    ._ble_adv_param = {
+            .pRxQ                       = &ble_cc13xx_cc26xx_data.rf.rx.queue,
+            .rxConfig.bAutoFlushIgnored = RF_RX_CONFIG_AUTO_FLUSH_IGNORED,
+            .rxConfig.bAutoFlushCrcErr  = RF_RX_CONFIG_AUTO_FLUSH_CRC_ERR,
+            .rxConfig.bAutoFlushEmpty   = RF_RX_CONFIG_AUTO_FLUSH_EMPTY,
+            .rxConfig.bIncludeLenByte   = RF_RX_CONFIG_INCLUDE_LEN_BYTE,
+            .rxConfig.bIncludeCrc       = RF_RX_CONFIG_INCLUDE_CRC,
+            .rxConfig.bAppendRssi       = RF_RX_CONFIG_APPEND_RSSI,
+            .rxConfig.bAppendStatus     = RF_RX_CONFIG_APPEND_STATUS,
+            .rxConfig.bAppendTimestamp  = RF_RX_CONFIG_APPEND_TIMESTAMP,
+            .advConfig.advFilterPolicy  = 0,
+            .advConfig.deviceAddrType   = 0,
+            .advConfig.peerAddrType     = 0,
+            .advConfig.bStrictLenFilter = 0,
+            .advConfig.chSel            = IS_ENABLED(CONFIG_BT_CTLR_CHAN_SEL_2),
+            .advConfig.privIgnMode      = 0,
+            .advConfig.rpaMode          = 0,
+            .advLen                     = 0,
+            .scanRspLen                 = 0,
+            .pAdvData                   = NULL,
+            .pScanRspData               = NULL,
+            .pDeviceAddress             = NULL,
+            .pWhiteList                 = NULL,
+            .behConfig.scanRspEndType   = 0,
+            .__dummy0                   = 0,
+            .__dummy1                   = 0,
+            .endTrigger.triggerType     = TRIG_NEVER,
+            .endTrigger.bEnaCmd         = 0,
+            .endTrigger.triggerNo       = 0,
+            .endTrigger.pastTrig        = 0,
+            .endTime                    = 0,
+        },
+	    ._ble_adv_output = {0},
 
-	.cmd_nop = {
-		.commandNo = CMD_NOP,
-		.condition = {
-			.rule = COND_NEVER,
-		},
-	},
+        .ble_adv_payload = {
+            .commandNo   = CMD_BLE_ADV_PAYLOAD,
+            .payloadType = 0,
+            .newLen      = 0,
+            .pNewData    = NULL,
+            .pParams     = &ble_cc13xx_cc26xx_data.rf.cmd._ble_adv_param,
+        },
 
-	.cmd_clear_rx = {
-		.commandNo = CMD_CLEAR_RX,
-		.pQueue = &ble_cc13xx_cc26xx_data.rx_queue,
-	},
-	.cmd_ble_adv_payload = {
-		.commandNo = CMD_BLE_ADV_PAYLOAD,
-		.pParams = &ble_cc13xx_cc26xx_data.cmd_ble_adv_param,
-	},
+        .ble5_generic_rx = {
+            .commandNo                = CMD_BLE5_GENERIC_RX,
+            .status                   = IDLE,
+            .pNextOp                  = NULL,
+            .startTime                = 0,
+            .startTrigger.triggerType = TRIG_NOW,
+            .startTrigger.bEnaCmd     = 0,
+            .startTrigger.triggerNo   = 0,
+            .startTrigger.pastTrig    = 0,
+            .condition.rule           = COND_NEVER,
+            .condition.nSkip          = COND_ALWAYS,
+            .channel                  = DEFAULT_CHANNEL,
+            .whitening.init           = 0,
+            .whitening.bOverride      = 0,
+            .phyMode.mainMode         = 0,
+            .phyMode.coding           = 0,
+            .rangeDelay               = 0,
+            .txPower                  = 0,
+            .pParams                  = &ble_cc13xx_cc26xx_data.rf.cmd._ble_generic_rx_param,
+            .pOutput                  = &ble_cc13xx_cc26xx_data.rf.cmd._ble_generic_rx_output,
+            .tx20Power                = 0,
+        },
+        ._ble_generic_rx_param = {
+            .pRxQ                       = &ble_cc13xx_cc26xx_data.rf.rx.queue,
+            .rxConfig.bAutoFlushIgnored = RF_RX_CONFIG_AUTO_FLUSH_IGNORED,
+            .rxConfig.bAutoFlushCrcErr  = RF_RX_CONFIG_AUTO_FLUSH_CRC_ERR,
+            .rxConfig.bAutoFlushEmpty   = RF_RX_CONFIG_AUTO_FLUSH_EMPTY,
+            .rxConfig.bIncludeLenByte   = RF_RX_CONFIG_INCLUDE_LEN_BYTE,
+            .rxConfig.bIncludeCrc       = RF_RX_CONFIG_INCLUDE_CRC,
+            .rxConfig.bAppendRssi       = RF_RX_CONFIG_APPEND_RSSI,
+            .rxConfig.bAppendStatus     = RF_RX_CONFIG_APPEND_STATUS,
+            .rxConfig.bAppendTimestamp  = RF_RX_CONFIG_APPEND_TIMESTAMP,
+            .bRepeat                    = 0,
+            .__dummy0                   = 0,
+            .accessAddress              = 0,
+            .crcInit0                   = 0,
+            .crcInit1                   = 0,
+            .crcInit2                   = 0,
+            .endTrigger.triggerType     = TRIG_NEVER,
+            .endTrigger.bEnaCmd         = 0,
+            .endTrigger.triggerNo       = 0,
+            .endTrigger.pastTrig        = 0,
+            .endTime                    = 0,
+        },
+        ._ble_generic_rx_output = {0},
 
-	.cmd_ble_slave = {
-		.commandNo = CMD_BLE_SLAVE,
-		.pParams = &ble_cc13xx_cc26xx_data.cmd_ble_slave_param,
-		.pOutput = &ble_cc13xx_cc26xx_data.cmd_ble_slave_output,
-		.condition = {
-			.rule = COND_NEVER,
-		},
-	},
+        .ble5_slave = {
+            .commandNo                = CMD_BLE5_SLAVE,
+            .status                   = IDLE,
+            .pNextOp                  = NULL,
+            .startTime                = 0,
+            .startTrigger.triggerType = TRIG_NOW,
+            .startTrigger.bEnaCmd     = 0,
+            .startTrigger.triggerNo   = 0,
+            .startTrigger.pastTrig    = 0,
+            .condition.rule           = COND_NEVER,
+            .condition.nSkip          = COND_ALWAYS,
+            .channel                  = DEFAULT_CHANNEL,
+            .whitening.init           = 0,
+            .whitening.bOverride      = 0,
+            .phyMode.mainMode         = 0,
+            .phyMode.coding           = 0,
+            .rangeDelay               = 0,
+            .txPower                  = 0,
+            .pParams                  = &ble_cc13xx_cc26xx_data.rf.cmd._ble5_slave_param,
+            .pOutput                  = &ble_cc13xx_cc26xx_data.rf.cmd._ble_slave_output,
+            .tx20Power                = 0,
+        },
+        ._ble5_slave_param = {
+            .pRxQ                       = &ble_cc13xx_cc26xx_data.rf.rx.queue,
+            .pTxQ                       = &ble_cc13xx_cc26xx_data.rf.tx.queue,
+            .rxConfig.bAutoFlushIgnored = RF_RX_CONFIG_AUTO_FLUSH_IGNORED,
+            .rxConfig.bAutoFlushCrcErr  = RF_RX_CONFIG_AUTO_FLUSH_CRC_ERR,
+            .rxConfig.bAutoFlushEmpty   = RF_RX_CONFIG_AUTO_FLUSH_EMPTY,
+            .rxConfig.bIncludeLenByte   = RF_RX_CONFIG_INCLUDE_LEN_BYTE,
+            .rxConfig.bIncludeCrc       = RF_RX_CONFIG_INCLUDE_CRC,
+            .rxConfig.bAppendRssi       = RF_RX_CONFIG_APPEND_RSSI,
+            .rxConfig.bAppendStatus     = RF_RX_CONFIG_APPEND_STATUS,
+            .rxConfig.bAppendTimestamp  = RF_RX_CONFIG_APPEND_TIMESTAMP,
+            .seqStat.lastRxSn           = 0,
+            .seqStat.lastTxSn           = 0,
+            .seqStat.nextTxSn           = 0,
+            .seqStat.bFirstPkt          = 1,
+            .seqStat.bAutoEmpty         = 0,
+            .seqStat.bLlCtrlTx          = 0,
+            .seqStat.bLlCtrlAckRx       = 0,
+            .seqStat.bLlCtrlAckPending  = 0,
+            .maxNack                    = 0,
+            .maxPkt                     = 0,
+            .accessAddress              = 0,
+            .crcInit0                   = 0,
+            .crcInit1                   = 0,
+            .crcInit2                   = 0,
+            .timeoutTrigger.triggerType = TRIG_REL_START,
+            .timeoutTrigger.bEnaCmd     = 0,
+            .timeoutTrigger.triggerNo   = 0,
+            .timeoutTrigger.pastTrig    = 0,
+            .timeoutTime                = 0,
+            .maxRxPktLen                = 0,
+            .maxLenLowRate              = 0,
+            .__dummy0                   = 0,
+            .endTrigger.triggerType     = TRIG_NEVER,
+            .endTrigger.bEnaCmd         = 0,
+            .endTrigger.triggerNo       = 0,
+            .endTrigger.pastTrig        = 0,
+        },
+        ._ble_slave_output = {0},
+    },
 
-	.cmd_ble_slave_param = {
-		.pRxQ = &ble_cc13xx_cc26xx_data.rx_queue,
-		.pTxQ = &ble_cc13xx_cc26xx_data.tx_queue,
-		.rxConfig = {
-			.bAutoFlushIgnored = true,
-			.bAutoFlushCrcErr = true,
-			.bAutoFlushEmpty = true,
-			.bIncludeLenByte = !!CC13XX_CC26XX_INCLUDE_LEN_BYTE,
-			.bIncludeCrc = !!CC13XX_CC26XX_INCLUDE_CRC,
-			.bAppendRssi = !!CC13XX_CC26XX_APPEND_RSSI,
-			.bAppendTimestamp = !!CC13XX_CC26XX_APPEND_TIMESTAMP,
-		},
-		.seqStat = {
-			.bFirstPkt = true,
-		},
-		.timeoutTrigger = {
-			.triggerType = TRIG_REL_START,
-		},
-		.endTrigger = {
-			.triggerType = TRIG_NEVER,
-		},
-	},
-	/* clang-format on */
+#if IS_ENABLED(CONFIG_BT_CTLR_ADV_EXT)
+	.adv_data[0 ... (sizeof(((struct pdu_adv_com_ext_adv *)0)->ext_hdr_adi_adv_data) - 1)] = 0,
+#else
+	.adv_data[0 ... (sizeof(((struct pdu_adv_adv_ind *)0)->data) - 1)] = 0,
+#endif
+	.adv_data_len = 0,
+
+#if IS_ENABLED(CONFIG_BT_CTLR_ADV_EXT)
+	.scan_rsp_data[0 ... (sizeof(((struct pdu_adv_com_ext_adv *)0)->ext_hdr_adi_adv_data) - 1)] = 0,
+#else
+	.scan_rsp_data[0 ... (sizeof(((struct pdu_adv_scan_rsp *)0)->data) - 1)] = 0,
+#endif
+	.scan_rsp_data_len = 0,
+
+#if defined(CONFIG_BT_CTLR_DEBUG_PINS)
+	.window_begin_ticks = 0,
+	.window_duration_ticks = 0,
+	.window_interval_ticks = 0,
+#endif /* defined(CONFIG_BT_CTLR_DEBUG_PINS) */
 };
 static ble_cc13xx_cc26xx_data_t* driver_data = &ble_cc13xx_cc26xx_data;
-
-static cc13xx_cc26xx_channel_table_t channel_table[] = {
-    {2402, 0xE5}, {2404, 0xC0}, {2406, 0xC1}, {2408, 0xC2},
-    {2410, 0xC3}, {2412, 0xC4}, {2414, 0xC5}, {2416, 0xC6},
-    {2418, 0xC7}, {2420, 0xC8}, {2422, 0xC9}, {2424, 0xCA},
-    {2426, 0xE6}, {2428, 0xCB}, {2430, 0xCC}, {2432, 0xCD},
-    {2434, 0xCE}, {2436, 0xCF}, {2438, 0xD0}, {2440, 0xD1},
-    {2442, 0xD2}, {2444, 0xD3}, {2446, 0xD4}, {2448, 0xD5},
-    {2450, 0xD6}, {2452, 0xD7}, {2454, 0xD8}, {2456, 0xD9},
-    {2458, 0xDA}, {2460, 0xDB}, {2462, 0xDC}, {2464, 0xDD},
-    {2466, 0xDE}, {2468, 0xDF}, {2470, 0xE0}, {2472, 0xE1},
-    {2474, 0xE2}, {2476, 0xE3}, {2478, 0xE4}, {2480, 0xE7}
-};
-
-static const RF_TxPowerTable_Entry RF_BLE_txPowerTable[] = {
-	{ -20, RF_TxPowerTable_DEFAULT_PA_ENTRY(6, 3, 0, 2) },
-	{ -15, RF_TxPowerTable_DEFAULT_PA_ENTRY(10, 3, 0, 3) },
-	{ -10, RF_TxPowerTable_DEFAULT_PA_ENTRY(15, 3, 0, 5) },
-	{ -5, RF_TxPowerTable_DEFAULT_PA_ENTRY(22, 3, 0, 9) },
-	{ 0, RF_TxPowerTable_DEFAULT_PA_ENTRY(19, 1, 0, 20) },
-	{ 1, RF_TxPowerTable_DEFAULT_PA_ENTRY(22, 1, 0, 20) },
-	{ 2, RF_TxPowerTable_DEFAULT_PA_ENTRY(25, 1, 0, 25) },
-	{ 3, RF_TxPowerTable_DEFAULT_PA_ENTRY(29, 1, 0, 28) },
-	{ 4, RF_TxPowerTable_DEFAULT_PA_ENTRY(35, 1, 0, 39) },
-	{ 5, RF_TxPowerTable_DEFAULT_PA_ENTRY(23, 0, 0, 57) },
-	RF_TxPowerTable_TERMINATION_ENTRY
-};
 
 static isr_radio_param_t radio_param;
 
@@ -577,7 +884,7 @@ static void describe_event_mask(RF_EventMask e)
 				"applications.");
 }
 
-static void dumpBleSlave(const char *calling_func, rfc_CMD_BLE_SLAVE_t *cmd) 
+static void dumpBleSlave(const char *calling_func, rfc_CMD_BLE5_SLAVE_t *cmd) 
 {
 	LOG_DBG("CMD_BLE_SLAVE: "
 		"commandNo: %04x "
@@ -838,8 +1145,8 @@ static void pkt_rx(const struct isr_radio_param *isr_radio_param)
 
 	crc_valid = false;
 
-	for (size_t i = 0; i < CC13XX_CC26XX_NUM_RX_BUF; it->status = DATA_ENTRY_PENDING, ++i) {
-		it = &driver_data->rx_entry[i];
+	for (size_t i = 0; i < RF_RX_ENTRY_BUFFER_SIZE; it->status = DATA_ENTRY_PENDING, ++i) {
+		it = &driver_data->rf.rx.entry[i];
 
 		if ((it->status == DATA_ENTRY_FINISHED) && (!once)) {
             size_t offs = it->pData[0];
@@ -939,19 +1246,19 @@ static void pkt_rx(const struct isr_radio_param *isr_radio_param)
 
 static void update_adv_data(uint8_t *data, uint8_t len, bool scan_rsp)
 {
-	driver_data->cmd_ble_adv_payload.payloadType = scan_rsp;
+	driver_data->rf.cmd.ble_adv_payload.payloadType = scan_rsp;
 
 	if (NULL == data || 0 == len) {
 		len = 0;
 	}
 
-	driver_data->cmd_ble_adv_payload.newLen =
+	driver_data->rf.cmd.ble_adv_payload.newLen =
 		MIN(len, scan_rsp ? sizeof(driver_data->scan_rsp_data) 
                           : sizeof(driver_data->adv_data));
 
-	driver_data->cmd_ble_adv_payload.pNewData = data;
+	driver_data->rf.cmd.ble_adv_payload.pNewData = data;
 
-	RFCDoorbellSendTo((uint32_t)&driver_data->cmd_ble_adv_payload);
+	RFCDoorbellSendTo((uint32_t)&driver_data->rf.cmd.ble_adv_payload);
 }
 
 static void rf_callback(RF_Handle h, RF_CmdHandle ch, RF_EventMask e)
@@ -983,8 +1290,8 @@ void isr_radio(void)
 
 	if (CMD_BLE_SLAVE == op->commandNo) {
 		// pParams->seqStat.bFirstPkt shall be cleared by the radio CPU.
-		LOG_DBG("CMD_BLE_SLAVE timestamp: %u", driver_data->cmd_ble_slave_output.timeStamp);
-		dumpBleSlave(__func__, & driver_data->cmd_ble_slave);
+		LOG_DBG("CMD_BLE_SLAVE timestamp: %u", driver_data->rf.cmd._ble_slave_output.timeStamp);
+		dumpBleSlave(__func__, &driver_data->rf.cmd.ble5_slave);
 	}
 
 	if (irq & RF_EventTxDone) {
@@ -1003,7 +1310,7 @@ void isr_radio(void)
 		/* 0b1010..RX Cancel -- Cancels pending RX events but do not
 		 *			abort a RX-in-progress
 		 */
-		RF_ratDisableChannel(rfBleHandle, driver_data->rat_hcto_handle);
+		RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
 
 		/* Copy the PDU as it arrives, calculates Rx end */
 		pkt_rx(isr_radio_param);
@@ -1017,7 +1324,7 @@ void isr_radio(void)
 
 	if (irq & RF_EventLastCmdDone) {
 		/* Disable both comparators */
-		RF_ratDisableChannel(rfBleHandle, driver_data->rat_hcto_handle);
+		RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
 	}
 
 	if (radio_trx && next_radio_cmd) {
@@ -1026,7 +1333,7 @@ void isr_radio(void)
 		next_radio_cmd->startTrigger.pastTrig = true;
 		next_radio_cmd->startTime = cntr_cnt_get();
 
-		driver_data->active_command_handle =
+		driver_data->rf.cmd.active_handle =
 			RF_postCmd(rfBleHandle, (RF_Op *)next_radio_cmd,
 				   RF_PriorityNormal, rf_callback, RF_EVENT_MASK);
 		next_radio_cmd = NULL;
@@ -1054,8 +1361,8 @@ static void rat_deferred_hcto_callback(RF_Handle h, RF_RatHandle rh,
 				       RF_EventMask e, uint32_t compareCaptureTime)
 {
 	LOG_DBG("now: %u", cntr_cnt_get());
-	RF_cancelCmd(rfBleHandle, driver_data->active_command_handle, RF_ABORT_GRACEFULLY);
-	driver_data->active_command_handle = -1;
+	RF_cancelCmd(rfBleHandle, driver_data->rf.cmd.active_handle, RF_ABORT_GRACEFULLY);
+	driver_data->rf.cmd.active_handle = -1;
 }
 
 static void ble_cc13xx_cc26xx_data_init(void)
@@ -1072,58 +1379,59 @@ static void ble_cc13xx_cc26xx_data_init(void)
             driver_data->device_address[0], driver_data->device_address[1],
 	        driver_data->device_address[2], driver_data->device_address[3], 
             driver_data->device_address[4], driver_data->device_address[5]);
-            
+
+#warning "check if static is used"
 	/* Ensure that this address is marked as _random_ */
-	driver_data->cmd_ble_adv_param.advConfig.deviceAddrType = 1;
+	// driver_data->rf.cmd._ble_adv_param.advConfig.deviceAddrType = 1;
 
 	/* Setup circular RX queue (TRM 25.3.2.7) */
-	memset(&driver_data->rx_entry[0], 0, sizeof(driver_data->rx_entry[0]));
-	memset(&driver_data->rx_entry[1], 0, sizeof(driver_data->rx_entry[1]));
+	memset(&driver_data->rf.rx.entry[0], 0, sizeof(driver_data->rf.rx.entry[0]));
+	memset(&driver_data->rf.rx.entry[1], 0, sizeof(driver_data->rf.rx.entry[1]));
 
-	driver_data->rx_entry[0].pNextEntry = (uint8_t *)&driver_data->rx_entry[1];
-	driver_data->rx_entry[0].config.type = DATA_ENTRY_TYPE_PTR;
-	driver_data->rx_entry[0].config.lenSz = 1;
-	driver_data->rx_entry[0].status = DATA_ENTRY_PENDING;
-	driver_data->rx_entry[0].length = sizeof(driver_data->rx_data[0]);
-	driver_data->rx_entry[0].pData = driver_data->rx_data[0];
+	driver_data->rf.rx.entry[0].pNextEntry = (uint8_t *)&driver_data->rf.rx.entry[1];
+	driver_data->rf.rx.entry[0].config.type = DATA_ENTRY_TYPE_PTR;
+	driver_data->rf.rx.entry[0].config.lenSz = 1;
+	driver_data->rf.rx.entry[0].status = DATA_ENTRY_PENDING;
+	driver_data->rf.rx.entry[0].length = sizeof(driver_data->rf.rx.data[0]);
+	driver_data->rf.rx.entry[0].pData = driver_data->rf.rx.data[0];
 
-	driver_data->rx_entry[1].pNextEntry = (uint8_t *)&driver_data->rx_entry[0];
-	driver_data->rx_entry[1].config.type = DATA_ENTRY_TYPE_PTR;
-	driver_data->rx_entry[1].config.lenSz = 1;
-	driver_data->rx_entry[0].status = DATA_ENTRY_PENDING;
-	driver_data->rx_entry[1].length = sizeof(driver_data->rx_data[1]);
-	driver_data->rx_entry[1].pData = driver_data->rx_data[1];
+	driver_data->rf.rx.entry[1].pNextEntry = (uint8_t *)&driver_data->rf.rx.entry[0];
+	driver_data->rf.rx.entry[1].config.type = DATA_ENTRY_TYPE_PTR;
+	driver_data->rf.rx.entry[1].config.lenSz = 1;
+	driver_data->rf.rx.entry[0].status = DATA_ENTRY_PENDING;
+	driver_data->rf.rx.entry[1].length = sizeof(driver_data->rf.rx.data[1]);
+	driver_data->rf.rx.entry[1].pData = driver_data->rf.rx.data[1];
 
-	driver_data->rx_queue.pCurrEntry = (uint8_t *)&driver_data->rx_entry[0];
-	driver_data->rx_queue.pLastEntry = NULL;
+	driver_data->rf.tx.queue.pCurrEntry = (uint8_t *)&driver_data->rf.rx.entry[0];
+	driver_data->rf.tx.queue.pLastEntry = NULL;
 
 	/* Setup circular TX queue (TRM 25.3.2.7) */
-	memset(&driver_data->tx_entry[0], 0, sizeof(driver_data->tx_entry[0]));
-	memset(&driver_data->tx_entry[1], 0, sizeof(driver_data->tx_entry[1]));
+	memset(&driver_data->rf.tx.entry[0], 0, sizeof(driver_data->rf.tx.entry[0]));
+	memset(&driver_data->rf.tx.entry[1], 0, sizeof(driver_data->rf.tx.entry[1]));
 
-	driver_data->tx_entry[0].pNextEntry = (uint8_t *)&driver_data->tx_entry[1];
-	driver_data->tx_entry[0].config.type = DATA_ENTRY_TYPE_PTR;
-	driver_data->tx_entry[0].config.lenSz = 0;
-	driver_data->tx_entry[0].config.irqIntv = 0;
-	driver_data->tx_entry[0].status = DATA_ENTRY_FINISHED;
-	driver_data->tx_entry[0].length = 0;
-	driver_data->tx_entry[0].pData = driver_data->tx_data[0];
+	driver_data->rf.tx.entry[0].pNextEntry = (uint8_t *)&driver_data->rf.tx.entry[1];
+	driver_data->rf.tx.entry[0].config.type = DATA_ENTRY_TYPE_PTR;
+	driver_data->rf.tx.entry[0].config.lenSz = 0;
+	driver_data->rf.tx.entry[0].config.irqIntv = 0;
+	driver_data->rf.tx.entry[0].status = DATA_ENTRY_FINISHED;
+	driver_data->rf.tx.entry[0].length = 0;
+	driver_data->rf.tx.entry[0].pData = driver_data->rf.tx.data[0];
 
-	driver_data->tx_entry[1].pNextEntry = (uint8_t *)&driver_data->tx_entry[0];
-	driver_data->tx_entry[1].config.type = DATA_ENTRY_TYPE_PTR;
-	driver_data->tx_entry[1].config.lenSz = 1;
-	driver_data->tx_entry[0].status = DATA_ENTRY_FINISHED;
-	driver_data->tx_entry[1].length = sizeof(driver_data->tx_data[1]);
-	driver_data->tx_entry[1].pData = driver_data->tx_data[1];
+	driver_data->rf.tx.entry[1].pNextEntry = (uint8_t *)&driver_data->rf.tx.entry[0];
+	driver_data->rf.tx.entry[1].config.type = DATA_ENTRY_TYPE_PTR;
+	driver_data->rf.tx.entry[1].config.lenSz = 1;
+	driver_data->rf.tx.entry[0].status = DATA_ENTRY_FINISHED;
+	driver_data->rf.tx.entry[1].length = sizeof(driver_data->rf.tx.data[1]);
+	driver_data->rf.tx.entry[1].pData = driver_data->rf.tx.data[1];
 
-	driver_data->tx_queue.pCurrEntry = (uint8_t *)&driver_data->tx_entry[0];
-	driver_data->tx_queue.pLastEntry = NULL;
+	driver_data->rf.tx.queue.pCurrEntry = (uint8_t *)&driver_data->rf.tx.entry[0];
+	driver_data->rf.tx.queue.pLastEntry = NULL;
 
-	driver_data->active_command_handle = -1;
+	driver_data->rf.cmd.active_handle = -1;
 
 	RF_RatConfigCompare_init(
-		(RF_RatConfigCompare *)&driver_data->rat_hcto_compare);
-	driver_data->rat_hcto_compare.callback = rat_deferred_hcto_callback;
+		(RF_RatConfigCompare *)&driver_data->rf.rat.hcto_compare);
+	driver_data->rf.rat.hcto_compare.callback = rat_deferred_hcto_callback;
 }
 
 /*
@@ -1162,22 +1470,17 @@ static void get_isr_latency(void)
 void radio_setup(void)
 {
 	RF_Params rfBleParams;
-
 	RF_Params_init(&rfBleParams);
 
 	ble_cc13xx_cc26xx_data_init();
 
 	rfBleHandle = RF_open(&rfObject, &RF_modeBle, 
-               (RF_RadioSetup*)&driver_data->cmd_ble_radio_setup, 
+               (RF_RadioSetup*)&driver_data->rf.cmd.ble5_radio_setup, 
                &rfBleParams);
 	LL_ASSERT(rfBleHandle);
 
-	driver_data->cmd_set_frequency.frequency = channel_table[0].frequency;
-	driver_data->cmd_set_frequency.fractFreq = 0x0000;
-	driver_data->whiten = channel_table[0].whitening;
-	driver_data->chan = 37;
-	RF_runCmd(rfBleHandle, (RF_Op *)&driver_data->cmd_set_frequency,
-		  RF_PriorityNormal, NULL, RF_EventLastCmdDone);
+	RF_runCmd(rfBleHandle, (RF_Op *)&driver_data->rf.cmd.set_frequency,
+		                    RF_PriorityNormal, NULL, RF_EventLastCmdDone);
 
 	/* Get warmpup times. They are used in TIFS calculations */
 	tx_warmup = 0; /* us */
@@ -1250,19 +1553,19 @@ void radio_freq_chan_set(uint32_t chan)
 
 	switch (chan) {
 	case 2:
-		driver_data->chan = 37;
+		driver_data->channel = 37;
 		break;
 	case 4 ... 24:
-		driver_data->chan = (chan - 4) / 2;
+		driver_data->channel = (chan - 4) / 2;
 		break;
 	case 26:
-		driver_data->chan = 38;
+		driver_data->channel = 38;
 		break;
 	case 28 ... 78:
-		driver_data->chan = (chan - 6) / 2;
+		driver_data->channel = (chan - 6) / 2;
 		break;
 	case 80:
-		driver_data->chan = 39;
+		driver_data->channel = 39;
 		break;
 	}
 }
@@ -1335,7 +1638,7 @@ void radio_pkt_tx_set(void *tx_packet)
 			command_no = CMD_BLE_ADV;
 			typespecstr = "ADV: ADV_IND";
 			next_tx_radio_cmd =
-				(rfc_bleRadioOp_t *)&driver_data->cmd_ble_adv;
+				(rfc_bleRadioOp_t *)&driver_data->rf.cmd.ble5_adv;
 			break;
 		case PDU_ADV_TYPE_DIRECT_IND:
 			typespecstr = "ADV: DIRECT_IND";
@@ -1366,6 +1669,27 @@ void radio_pkt_tx_set(void *tx_packet)
 			break;
 		}
 
+        if ( NULL != typespecstr ) {
+			LOG_INF(
+				"PDU %s: {\n\t"
+				"rx_addr: %u\n\t"
+				"tx_addr: %u\n\t"
+				"chan_sel: %u\n\t"
+				"rfu: %u\n\t"
+				"type: %u\n\t"
+				"len: %u\n\t"
+				"}"
+				,
+				typespecstr,
+                pdu_adv->rx_addr,
+	            pdu_adv->tx_addr,
+                pdu_adv->chan_sel,
+                pdu_adv->rfu,
+                pdu_adv->type,
+                pdu_adv->len
+			);
+		}
+
 	} else {
 		/* PDU is data */
 		const struct pdu_data *pdu_data =
@@ -1373,9 +1697,9 @@ void radio_pkt_tx_set(void *tx_packet)
 		switch (pdu_data->ll_id) {
 		case PDU_DATA_LLID_DATA_CONTINUE:
 			typespecstr = "DATA: DATA_CONTINUE";
-            driver_data->tx_entry[0].length = MIN((PDU_DC_LL_HEADER_SIZE + pdu_data->len) ,CC13XX_CC26XX_TX_BUF_SIZE);
-			memcpy(&driver_data->tx_data[0], pdu_data, driver_data->tx_entry[0].length);
-			driver_data->tx_entry[0].status = DATA_ENTRY_PENDING;
+            driver_data->rf.tx.entry[0].length = MIN((PDU_DC_LL_HEADER_SIZE + pdu_data->len) ,RF_TX_BUFFER_SIZE);
+			memcpy(&driver_data->rf.tx.data[0], pdu_data, driver_data->rf.tx.entry[0].length);
+			driver_data->rf.tx.entry[0].status = DATA_ENTRY_PENDING;
 			break;
 		case PDU_DATA_LLID_DATA_START:
 			typespecstr = "DATA: DATA_START";
@@ -1468,9 +1792,8 @@ void radio_pkt_tx_set(void *tx_packet)
 			break;
 		}
 
-#if 1
 		if ( NULL != typespecstr ) {
-			LOG_DBG(
+			LOG_INF(
 				"PDU %s: {\n\t"
 				"ll_id: %u\n\t"
 				"nesn: %u\n\t"
@@ -1489,7 +1812,6 @@ void radio_pkt_tx_set(void *tx_packet)
 				pdu_data->len
 			);
 		}
-#endif
 	}
 
 	if (driver_data->ignore_next_tx) {
@@ -1557,10 +1879,10 @@ void radio_disable(void)
 	RFCDoorbellSendTo(CMDR_DIR_CMD(CMD_ABORT));
 
 	/* Set all RX entries to empty */
-	RFCDoorbellSendTo((uint32_t)&driver_data->cmd_clear_rx);
+	RFCDoorbellSendTo((uint32_t)&driver_data->rf.cmd.clear_rx);
 
 	/* generate interrupt to get into isr_radio */
-	RF_postCmd(rfBleHandle, (RF_Op *)&driver_data->cmd_nop, RF_PriorityNormal,
+	RF_postCmd(rfBleHandle, (RF_Op *)&driver_data->rf.cmd.nop, RF_PriorityNormal,
 		   rf_callback, RF_EventLastCmdDone);
 
 	next_radio_cmd = NULL;
@@ -1653,7 +1975,7 @@ void radio_switch_complete_and_rx(uint8_t phy_rx)
 	/*  0b0110..RX Start @ T1 Timer Compare Match (EVENT_TMR = T1_CMP) */
 	if (!driver_data->ignore_next_rx && NULL == next_radio_cmd) {
 		next_radio_cmd =
-			(rfc_bleRadioOp_t *)&driver_data->cmd_ble_generic_rx;
+			(rfc_bleRadioOp_t *)&driver_data->rf.cmd.ble5_generic_rx;
 	}
 
 	/* the margin is used to account for any overhead in radio switching */
@@ -1674,7 +1996,7 @@ void radio_switch_complete_and_tx(uint8_t phy_rx, uint8_t flags_rx,
 
 void radio_switch_complete_and_disable(void)
 {
-	RF_ratDisableChannel(rfBleHandle, driver_data->rat_hcto_handle);
+	RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
 	next_radio_cmd = NULL;
 }
 
@@ -1825,7 +2147,7 @@ static uint32_t radio_tmr_start_hlp(uint8_t trx, uint32_t ticks_start, uint32_t 
 		}
 	} else {
 		if (next_radio_cmd == NULL) {
-			next_radio_cmd = (rfc_bleRadioOp_t *)&driver_data ->cmd_ble_generic_rx;
+			next_radio_cmd = (rfc_bleRadioOp_t *)&driver_data->rf.cmd.ble5_generic_rx;
 		}
 
 		if (remainder <= MIN_CMD_TIME) {
@@ -1848,7 +2170,7 @@ static uint32_t radio_tmr_start_hlp(uint8_t trx, uint32_t ticks_start, uint32_t 
 	if (radio_start_now_cmd) {
 
 		/* trigger Rx/Tx Start Now */
-		radio_start_now_cmd->channel = driver_data->chan;
+		radio_start_now_cmd->channel = driver_data->channel;
 		if ( CMD_BLE_SLAVE == next_radio_cmd->commandNo ) {
 			// timing is done in radio_set_up_slave_cmd()
 		} else {
@@ -1856,14 +2178,14 @@ static uint32_t radio_tmr_start_hlp(uint8_t trx, uint32_t ticks_start, uint32_t 
 			radio_start_now_cmd->startTrigger.triggerType = TRIG_ABSTIME;
 			radio_start_now_cmd->startTrigger.pastTrig = true;
 		}
-		driver_data->active_command_handle =
+		driver_data->rf.cmd.active_handle =
 			RF_postCmd(rfBleHandle, (RF_Op *)radio_start_now_cmd,
 				   RF_PriorityNormal, rf_callback, RF_EVENT_MASK);
 	} else {
 		if (next_radio_cmd != NULL) {
 			/* enable T1_CMP to trigger the SEQCMD */
 			/* trigger Rx/Tx Start Now */
-			next_radio_cmd->channel = driver_data->chan;
+			next_radio_cmd->channel = driver_data->channel;
 			if ( CMD_BLE_SLAVE == next_radio_cmd->commandNo ) {
 				// timing is done in radio_set_up_slave_cmd()
 			} else {
@@ -1871,7 +2193,7 @@ static uint32_t radio_tmr_start_hlp(uint8_t trx, uint32_t ticks_start, uint32_t 
 				next_radio_cmd->startTrigger.triggerType = TRIG_ABSTIME;
 				next_radio_cmd->startTrigger.pastTrig = true;
 			}
-			driver_data->active_command_handle =
+			driver_data->rf.cmd.active_handle =
 				RF_postCmd(rfBleHandle, (RF_Op *)next_radio_cmd,
 					   RF_PriorityNormal, rf_callback,
 					   RF_EVENT_MASK);
@@ -1930,11 +2252,11 @@ void radio_tmr_hcto_configure(uint32_t hcto)
 		return;
 	}
 
-	driver_data->rat_hcto_compare.timeout = hcto;
+	driver_data->rf.rat.hcto_compare.timeout = hcto;
 
 	/* 0b1001..RX Stop @ T2 Timer Compare Match (EVENT_TMR = T2_CMP) */
-	driver_data->rat_hcto_handle =
-		RF_ratCompare(rfBleHandle, &driver_data->rat_hcto_compare, NULL);
+	driver_data->rf.rat.hcto_handle =
+		RF_ratCompare(rfBleHandle, &driver_data->rf.rat.hcto_compare, NULL);
 }
 
 void radio_tmr_aa_capture(void)

@@ -206,11 +206,11 @@ int lll_init(void)
 #if defined(CONFIG_DYNAMIC_DIRECT_INTERRUPTS)
 	ARM_IRQ_DIRECT_DYNAMIC_CONNECT(LL_RADIO_IRQn, CONFIG_BT_CTLR_LLL_PRIO,
 				       IRQ_CONNECT_FLAGS, no_reschedule);
-	irq_connect_dynamic(LL_RADIO_IRQn, CONFIG_BT_CTLR_LLL_PRIO,
-			    radio_cc13xx_cc26xx_isr, NULL, IRQ_CONNECT_FLAGS);
+	// irq_connect_dynamic(LL_RADIO_IRQn, CONFIG_BT_CTLR_LLL_PRIO,
+	// 		    radio_cc13xx_cc26xx_isr, NULL, IRQ_CONNECT_FLAGS);
 #else /* !CONFIG_DYNAMIC_DIRECT_INTERRUPTS */
-	IRQ_DIRECT_CONNECT(LL_RADIO_IRQn, CONFIG_BT_CTLR_LLL_PRIO,
-			   radio_cc13xx_cc26xx_isr, IRQ_CONNECT_FLAGS);
+	// IRQ_DIRECT_CONNECT(LL_RADIO_IRQn, CONFIG_BT_CTLR_LLL_PRIO,
+	// 		   radio_cc13xx_cc26xx_isr, IRQ_CONNECT_FLAGS);
 #endif /* !CONFIG_DYNAMIC_DIRECT_INTERRUPTS */
 	irq_connect_dynamic(LL_RTC0_IRQn, CONFIG_BT_CTLR_ULL_HIGH_PRIO,
 			    rtc0_cc13xx_cc26xx_isr, NULL, 0U);
@@ -223,8 +223,8 @@ int lll_init(void)
 #endif
 
 #else /* !CONFIG_BT_CTLR_DYNAMIC_INTERRUPTS */
-	IRQ_DIRECT_CONNECT(LL_RADIO_IRQn, CONFIG_BT_CTLR_LLL_PRIO,
-			   radio_cc13xx_cc26xx_isr, IRQ_CONNECT_FLAGS);
+	// IRQ_DIRECT_CONNECT(LL_RADIO_IRQn, CONFIG_BT_CTLR_LLL_PRIO,
+	// 		   radio_cc13xx_cc26xx_isr, IRQ_CONNECT_FLAGS);
 	IRQ_CONNECT(LL_RTC0_IRQn, CONFIG_BT_CTLR_ULL_HIGH_PRIO,
 		    rtc0_cc13xx_cc26xx_isr, NULL, 0);
 #if defined(CONFIG_BT_CTLR_ZLI)
@@ -278,8 +278,8 @@ int lll_deinit(void)
 #if defined(CONFIG_BT_CTLR_DYNAMIC_INTERRUPTS)
 #if defined(CONFIG_SHARED_INTERRUPTS)
 #if defined(CONFIG_DYNAMIC_DIRECT_INTERRUPTS)
-	irq_disconnect_dynamic(LL_RADIO_IRQn, CONFIG_BT_CTLR_LLL_PRIO,
-			       radio_cc13xx_cc26xx_isr, NULL, IRQ_CONNECT_FLAGS);
+	// irq_disconnect_dynamic(LL_RADIO_IRQn, CONFIG_BT_CTLR_LLL_PRIO,
+	// 		       radio_cc13xx_cc26xx_isr, NULL, IRQ_CONNECT_FLAGS);
 #endif /* CONFIG_DYNAMIC_DIRECT_INTERRUPTS */
 	irq_disconnect_dynamic(LL_RTC0_IRQn, CONFIG_BT_CTLR_ULL_HIGH_PRIO,
 			       rtc0_cc13xx_cc26xx_isr, NULL, 0U);
@@ -292,8 +292,8 @@ int lll_deinit(void)
 #endif
 #else /* !CONFIG_SHARED_INTERRUPTS */
 #if defined(CONFIG_DYNAMIC_DIRECT_INTERRUPTS)
-	irq_connect_dynamic(LL_RADIO_IRQn, CONFIG_BT_CTLR_LLL_PRIO, NULL, NULL,
-			    IRQ_CONNECT_FLAGS);
+	// irq_connect_dynamic(LL_RADIO_IRQn, CONFIG_BT_CTLR_LLL_PRIO, NULL, NULL,
+	// 		    IRQ_CONNECT_FLAGS);
 #endif /* CONFIG_DYNAMIC_DIRECT_INTERRUPTS */
 	irq_connect_dynamic(LL_RTC0_IRQn, CONFIG_BT_CTLR_ULL_HIGH_PRIO, NULL, NULL,
 			    0U);

@@ -80,7 +80,6 @@ config BT_LLL_VENDOR_TI
 	bool "Use Texas Instruments LLL"
 	depends on SOC_FAMILY_TI_SIMPLELINK
 
-    select PM
 	select BLE_CC13XX_CC26XX
     select ENTROPY_CC13XX_CC26XX_RNG
 
