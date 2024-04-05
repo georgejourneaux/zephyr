@@ -47,7 +47,7 @@
 
 #define LOG_LEVEL CONFIG_BT_HCI_DRIVER_LOG_LEVEL
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(bt_ti_radio);
+LOG_MODULE_REGISTER(bt_ti_radio, LOG_LEVEL_DBG);
 
 /* CTEINLINE S0_MASK for periodic advertising PUDs. It allows to accept all types of extended
  * advertising PDUs to have CTE included.
@@ -134,6 +134,7 @@ typedef enum BLE_FREQUENCY_TABLE_ENTRY {
     BLE_FREQUENCY_TABLE_ENTRY_2480,
 
     BLE_FREQUENCY_TABLE_SIZE,
+    BLE_FREQUENCY_TABLE_ENTRY_DEFAULT = BLE_FREQUENCY_TABLE_ENTRY_2440
 } ble_frequency_table_entry_t;
 
 typedef struct isr_radio_param {
@@ -163,7 +164,7 @@ typedef struct ble_cc13xx_cc26xx_rf_cmd {
 	RF_CmdHandle active_handle;
 
 	rfc_CMD_NOP_t nop;
-	rfc_CMD_FS_t set_frequency;
+	rfc_CMD_FS_t fs;
 	rfc_CMD_CLEAR_RX_t clear_rx;
 
 	rfc_CMD_BLE5_RADIO_SETUP_t ble5_radio_setup;
@@ -334,7 +335,7 @@ uint32_t pOverrides_bleCoded[] =
     (uint32_t)0xFFFFFFFF
 };
 
-static const cc13xx_cc26xx_frequency_table_entry_t channel_table[BLE_FREQUENCY_TABLE_SIZE] = {
+static const cc13xx_cc26xx_frequency_table_entry_t frequency_table[BLE_FREQUENCY_TABLE_SIZE] = {
     [BLE_FREQUENCY_TABLE_ENTRY_2402] = {.frequency = 2402, .whitening = 0xE5}, 
     [BLE_FREQUENCY_TABLE_ENTRY_2404] = {.frequency = 2404, .whitening = 0xC0}, 
     [BLE_FREQUENCY_TABLE_ENTRY_2406] = {.frequency = 2406, .whitening = 0xC1}, 
@@ -411,8 +412,9 @@ static uint32_t skip_hcto;
 static uint32_t isr_timer_aa = 0;
 static uint32_t isr_timer_end = 0;
 static uint32_t isr_latency = 0;
-static rfc_bleRadioOp_t *next_radio_cmd;
-static rfc_bleRadioOp_t *next_tx_radio_cmd;
+
+static RF_CmdHandle next_radio_commandNo = 0;
+static RF_CmdHandle next_tx_radio_commandNo = 0;
 
 static int8_t rssi;
 
@@ -439,7 +441,7 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
 	.access_address          = 0xFFFFFFFF,
 	.polynomial              = 0,
 	.iv                      = 0,
-	.whiten                  = channel_table[BLE_FREQUENCY_TABLE_ENTRY_2440].whitening,
+	.whiten                  = frequency_table[BLE_FREQUENCY_TABLE_ENTRY_DEFAULT].whitening,
 	.channel                 = DEFAULT_CHANNEL,
 
     .ignore_next_rx = false,
@@ -460,7 +462,7 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
         .hcto_handle = 0,
     },
     .rf.cmd = {
-        .set_frequency = {
+        .fs = {
             .commandNo                = CMD_FS,
             .status                   = IDLE,
             .pNextOp                  = NULL,
@@ -471,7 +473,7 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
             .startTrigger.pastTrig    = 0,
             .condition.rule           = COND_NEVER,
             .condition.nSkip          = COND_ALWAYS,
-            .frequency                = channel_table[BLE_FREQUENCY_TABLE_ENTRY_2440].frequency,
+            .frequency                = frequency_table[BLE_FREQUENCY_TABLE_ENTRY_DEFAULT].frequency,
             .fractFreq                = 0,
             .synthConf.bTxMode        = 0,
             .synthConf.refFreq        = 0,
@@ -723,365 +725,222 @@ static ble_cc13xx_cc26xx_data_t* driver_data = &ble_cc13xx_cc26xx_data;
 
 static isr_radio_param_t radio_param;
 
-static const char* const command_number_to_string(uint16_t command_number)
+static const char* const commandNo_to_string(RF_CmdHandle commandNo)
 {
-    switch(command_number) {
-        case CMD_BLE_ADV: return "CMD_BLE_ADV";
-        case CMD_NOP: return "CMD_NOP";
-        case CMD_BLE_GENERIC_RX: return "CMD_BLE_GENERIC_RX";
-        case CMD_BLE_SLAVE: return "CMD_BLE_SLAVE";
+    switch(commandNo) {
+        case CMD_FS:             return "CMD_FS";
+        case CMD_NOP:            return "CMD_NOP";
+        case CMD_CLEAR_RX:       return "CMD_CLEAR_RX";
+
+        case CMD_BLE5_RADIO_SETUP: return "CMD_BLE5_RADIO_SETUP";
+        case CMD_BLE5_ADV:         return "CMD_BLE5_ADV";
+        case CMD_BLE_ADV_PAYLOAD:  return "CMD_BLE_ADV_PAYLOAD";
+        case CMD_BLE5_GENERIC_RX:  return "CMD_BLE5_GENERIC_RX";
+        case CMD_BLE5_SLAVE:       return "CMD_BLE5_SLAVE";
 
         default: break;
     }
 
-	return "[unknown]";
+	return "unknown";
 }
 
 static const char* const ble_status_to_string(uint16_t status)
 {
 	switch (status) {
-	    case IDLE: return "Operation not started";
-	    case PENDING: return "Start of command is pending";
-	    case ACTIVE: return "Running";
-	    case SKIPPED: return "Operation skipped due to condition in another command";
+	    case IDLE:    return "IDLE";
+	    case PENDING: return "PENDING";
+	    case ACTIVE:  return "ACTIVE";
+	    case SKIPPED: return "SKIPPED";
 
-	    case DONE_OK: return "Operation ended normally";
-	    case DONE_COUNTDOWN: return "Counter reached zero";
-	    case DONE_RXERR: return "Operation ended with CRC error";
-	    case DONE_TIMEOUT: return "Operation ended with timeout";
-	    case DONE_STOPPED: return "Operation stopped after CMD_STOP command";
-	    case DONE_ABORT: return "Operation aborted by CMD_ABORT command";
-	    case DONE_FAILED: return "Scheduled immediate command failed";
+	    case DONE_OK:        return "DONE_OK";
+	    case DONE_COUNTDOWN: return "DONE_COUNTDOWN";
+	    case DONE_RXERR:     return "DONE_RXERR";
+	    case DONE_TIMEOUT:   return "DONE_TIMEOUT";
+	    case DONE_STOPPED:   return "DONE_STOPPED";
+	    case DONE_ABORT:     return "DONE_ABORT";
+	    case DONE_FAILED:    return "DONE_FAILED";
 
-	    case ERROR_PAST_START: return "The start trigger occurred in the past";
-	    case ERROR_START_TRIG: return "Illegal start trigger parameter";
-	    case ERROR_CONDITION: return "Illegal condition for next operation";
-	    case ERROR_PAR: return "Error in a command specific parameter";
-	    case ERROR_POINTER: return "Invalid pointer to next operation";
-	    case ERROR_CMDID: return "Next operation has a command ID that is undefined or not a radio operation command";
-	    case ERROR_WRONG_BG: return "FG level command not compatible with running BG level command";
-	    case ERROR_NO_SETUP: return "Operation using Rx or Tx attempted without CMD_RADIO_SETUP";
-	    case ERROR_NO_FS: return "Operation using Rx or Tx attempted without frequency synth configured";
-	    case ERROR_SYNTH_PROG: return "Synthesizer calibration failed";
-	    case ERROR_TXUNF: return "Tx underflow observed";
-	    case ERROR_RXOVF: return "Rx overflow observed";
-	    case ERROR_NO_RX: return "Attempted to access data from Rx when no such data was yet received";
-	    case ERROR_PENDING: return "Command submitted in the future with another command at different level pending";
+	    case ERROR_PAST_START: return "ERROR_PAST_START";
+	    case ERROR_START_TRIG: return "ERROR_START_TRIG";
+	    case ERROR_CONDITION:  return "ERROR_CONDITION";
+	    case ERROR_PAR:        return "ERROR_PAR";
+	    case ERROR_POINTER:    return "ERROR_POINTER";
+	    case ERROR_CMDID:      return "ERROR_CMDID";
+	    case ERROR_WRONG_BG:   return "ERROR_WRONG_BG";
+	    case ERROR_NO_SETUP:   return "ERROR_NO_SETUP";
+	    case ERROR_NO_FS:      return "ERROR_NO_FS";
+	    case ERROR_SYNTH_PROG: return "ERROR_SYNTH_PROG";
+	    case ERROR_TXUNF:      return "ERROR_TXUNF";
+	    case ERROR_RXOVF:      return "ERROR_RXOVF";
+	    case ERROR_NO_RX:      return "ERROR_NO_RX";
+	    case ERROR_PENDING:    return "ERROR_PENDING";
 
-	    case BLE_DONE_OK: return "Operation ended normally";
-	    case BLE_DONE_RXTIMEOUT: return "Timeout of first Rx of slave operation or end of scan window";
-	    case BLE_DONE_NOSYNC: return "Timeout of subsequent Rx";
-	    case BLE_DONE_RXERR: return "Operation ended because of receive error (CRC or other)";
-	    case BLE_DONE_CONNECT: return "CONNECT_IND or AUX_CONNECT_RSP received or transmitted";
-	    case BLE_DONE_MAXNACK: return "Maximum number of retransmissions exceeded";
-	    case BLE_DONE_ENDED: return "Operation stopped after end trigger";
-	    case BLE_DONE_ABORT: return "Operation aborted by command";
-	    case BLE_DONE_STOPPED: return "Operation stopped after stop command";
-	    case BLE_DONE_AUX: return "Operation ended after following aux pointer pointing far ahead";
-	    case BLE_DONE_CONNECT_CHSEL0: return "CONNECT_IND received or transmitted; peer does not support channel selection algorithm #2";
-	    case BLE_DONE_SCAN_RSP: return "SCAN_RSP or AUX_SCAN_RSP transmitted";
-	    case BLE_ERROR_PAR: return "Illegal parameter";
-	    case BLE_ERROR_RXBUF: return "No available Rx buffer (Advertiser, Scanner, Initiator)";
-	    case BLE_ERROR_NO_SETUP: return "Operation using Rx or Tx attempted when not in BLE mode";
-	    case BLE_ERROR_NO_FS: return "Operation using Rx or Tx attempted without frequency synth configured";
-	    case BLE_ERROR_SYNTH_PROG: return "Synthesizer programming failed to complete on time";
-	    case BLE_ERROR_RXOVF: return "Receiver overflowed during operation";
-	    case BLE_ERROR_TXUNF: return "Transmitter underflowed during operation";
-	    case BLE_ERROR_AUX: return "Calculated AUX pointer was too far into the future or in the past";
+	    case BLE_DONE_OK:             return "BLE_DONE_OK";
+	    case BLE_DONE_RXTIMEOUT:      return "BLE_DONE_RXTIMEOUT";
+	    case BLE_DONE_NOSYNC:         return "BLE_DONE_NOSYNC";
+	    case BLE_DONE_RXERR:          return "BLE_DONE_RXERR";
+	    case BLE_DONE_CONNECT:        return "BLE_DONE_CONNECT";
+	    case BLE_DONE_MAXNACK:        return "BLE_DONE_MAXNACK";
+	    case BLE_DONE_ENDED:          return "BLE_DONE_ENDED";
+	    case BLE_DONE_ABORT:          return "BLE_DONE_ABORT";
+	    case BLE_DONE_STOPPED:        return "BLE_DONE_STOPPED";
+	    case BLE_DONE_AUX:            return "BLE_DONE_AUX";
+	    case BLE_DONE_CONNECT_CHSEL0: return "BLE_DONE_CONNECT_CHSEL0";
+	    case BLE_DONE_SCAN_RSP:       return "BLE_DONE_SCAN_RSP";
+	    case BLE_ERROR_PAR:           return "BLE_ERROR_PAR";
+	    case BLE_ERROR_RXBUF:         return "BLE_ERROR_RXBUF";
+	    case BLE_ERROR_NO_SETUP:      return "BLE_ERROR_NO_SETUP";
+	    case BLE_ERROR_NO_FS:         return "BLE_ERROR_NO_FS";
+	    case BLE_ERROR_SYNTH_PROG:    return "BLE_ERROR_SYNTH_PROG";
+	    case BLE_ERROR_RXOVF:         return "BLE_ERROR_RXOVF";
+	    case BLE_ERROR_TXUNF:         return "BLE_ERROR_TXUNF";
+	    case BLE_ERROR_AUX:           return "BLE_ERROR_AUX";
 
 	    default: break;
 	}
 
-    return "Unknown status";
+    return "unknown";
 }
 
-static void describe_event_mask(RF_EventMask e)
+static void log_dbg_event_mask(RF_EventMask event)
 {
-	if (e & RF_EventCmdDone)
-		LOG_DBG("A radio operation command in a chain finished.");
-	if (e & RF_EventLastCmdDone)
-		LOG_DBG("Last radio operation command in a chain finished.");
-	if (e & RF_EventFGCmdDone)
-		LOG_DBG("A IEEE-mode radio operation command in a chain "
-				"finished.");
-	if (e & RF_EventLastFGCmdDone)
-		LOG_DBG("A stand-alone IEEE-mode radio operation command or "
-				"the last command in a chain finished.");
-	if (e & RF_EventTxDone)
-		LOG_DBG("Packet transmitted");
-	if (e & RF_EventTXAck)
-		LOG_DBG("ACK packet transmitted");
-	if (e & RF_EventTxCtrl)
-		LOG_DBG("Control packet transmitted");
-	if (e & RF_EventTxCtrlAck)
-		LOG_DBG("Acknowledgment received on a transmitted control "
-				"packet");
-	if (e & RF_EventTxCtrlAckAck)
-		LOG_DBG("Acknowledgment received on a transmitted control "
-				"packet, and acknowledgment transmitted for that "
-				"packet");
-	if (e & RF_EventTxRetrans)
-		LOG_DBG("Packet retransmitted");
-	if (e & RF_EventTxEntryDone)
-		LOG_DBG("Tx queue data entry state changed to Finished");
-	if (e & RF_EventTxBufferChange)
-		LOG_DBG("A buffer change is complete");
-	if (e & RF_EventPaChanged)
-		LOG_DBG("The PA was reconfigured on the fly.");
-	if (e & RF_EventRxOk)
-		LOG_DBG("Packet received with CRC OK, payload, and not to "
-				"be ignored");
-	if (e & RF_EventRxNOk)
-		LOG_DBG("Packet received with CRC error");
-	if (e & RF_EventRxIgnored)
-		LOG_DBG("Packet received with CRC OK, but to be ignored");
-	if (e & RF_EventRxEmpty)
-		LOG_DBG("Packet received with CRC OK, not to be ignored, "
-				"no payload");
-	if (e & RF_EventRxCtrl)
-		LOG_DBG("Control packet received with CRC OK, not to be "
-				"ignored");
-	if (e & RF_EventRxCtrlAck)
-		LOG_DBG("Control packet received with CRC OK, not to be "
-				"ignored, then ACK sent");
-	if (e & RF_EventRxBufFull)
-		LOG_DBG("Packet received that did not fit in the Rx queue");
-	if (e & RF_EventRxEntryDone)
-		LOG_DBG("Rx queue data entry changing state to Finished");
-	if (e & RF_EventDataWritten)
+	if (event & RF_EventCmdDone)
+		LOG_DBG("Command done");
+	if (event & RF_EventLastCmdDone)
+		LOG_DBG("Last command done");
+	if (event & RF_EventFGCmdDone)
+		LOG_DBG("IEEE command done");
+	if (event & RF_EventLastFGCmdDone)
+		LOG_DBG("Last IEEE command done");
+	if (event & RF_EventTxDone)
+		LOG_DBG("Tx sent");
+	if (event & RF_EventTXAck)
+		LOG_DBG("Tx ACK sent");
+	if (event & RF_EventTxCtrl)
+		LOG_DBG("Tx control sent");
+	if (event & RF_EventTxCtrlAck)
+		LOG_DBG("Tx control ack received");
+	if (event & RF_EventTxCtrlAckAck)
+		LOG_DBG("Tx control ack ack sent");
+	if (event & RF_EventTxRetrans)
+		LOG_DBG("Tx retransmit sent");
+	if (event & RF_EventTxEntryDone)
+		LOG_DBG("Tx queue data entry state = finished");
+	if (event & RF_EventTxBufferChange)
+		LOG_DBG("Tx buffer changed");
+	if (event & RF_EventPaChanged)
+		LOG_DBG("PA changed");
+	if (event & RF_EventRxOk)
+		LOG_DBG("Rx ok");
+	if (event & RF_EventRxNOk)
+		LOG_DBG("Rx CRC error");
+	if (event & RF_EventRxIgnored)
+		LOG_DBG("Rx ok - ignore");
+	if (event & RF_EventRxEmpty)
+		LOG_DBG("Rx ok - no payload");
+	if (event & RF_EventRxCtrl)
+		LOG_DBG("Rx control ok");
+	if (event & RF_EventRxCtrlAck)
+		LOG_DBG("Rx control ok - ACK sent");
+	if (event & RF_EventRxBufFull)
+		LOG_DBG("Rx too big for queue");
+	if (event & RF_EventRxEntryDone)
+		LOG_DBG("Rx queue data entry state = finished");
+	if (event & RF_EventDataWritten)
 		LOG_DBG("Data written to partial read Rx buffer");
-	if (e & RF_EventNDataWritten)
-		LOG_DBG("Specified number of bytes written to partial read Rx "
-				"buffer");
-	if (e & RF_EventRxAborted)
-		LOG_DBG("Packet reception stopped before packet was done");
-	if (e & RF_EventRxCollisionDetected)
-		LOG_DBG("A collision was indicated during packet reception");
-	if (e & RF_EventModulesUnlocked)
-		LOG_DBG("As part of the boot process, the CM0 has opened access "
-				"to RF core modules and memories");
-	if (e & RF_EventInternalError)
-		LOG_DBG("Internal error observed");
-	if (e & RF_EventMdmSoft)
-		LOG_DBG("Synchronization word detected (MDMSOFT interrupt "
-				"flag)");
-	if (e & RF_EventCmdCancelled)
-		LOG_DBG("Command canceled before it was started.");
-	if (e & RF_EventCmdAborted)
-		LOG_DBG("Abrupt command termination caused by RF_cancelCmd() or "
-		       "RF_flushCmd().");
-	if (e & RF_EventCmdStopped)
-		LOG_DBG("Graceful command termination caused by RF_cancelCmd() "
-				"or RF_flushCmd().");
-	if (e & RF_EventRatCh)
-		LOG_DBG("A user-programmable RAT channel triggered an event.");
-	if (e & RF_EventError)
-		LOG_DBG("Event flag used for error callback functions to "
-				"indicate an error. See RF_Params::pErrCb.");
-	if (e & RF_EventCmdPreempted)
-		LOG_DBG("Command preempted by another command with higher "
-				"priority. Applies only to multi-client "
-				"applications.");
+	if (event & RF_EventNDataWritten)
+		LOG_DBG("Specified number of bytes written to partial read Rx buffer");
+	if (event & RF_EventRxAborted)
+		LOG_DBG("Rx aborted");
+	if (event & RF_EventRxCollisionDetected)
+		LOG_DBG("Rx collision");
+	if (event & RF_EventModulesUnlocked)
+		LOG_DBG("CM0 boot - RF core modules and memories unlocked");
+	if (event & RF_EventInternalError)
+		LOG_DBG("Internal error");
+	if (event & RF_EventMdmSoft)
+		LOG_DBG("Synchronization word detected (MDMSOFT interrupt flag)");
+	if (event & RF_EventCmdCancelled)
+		LOG_DBG("Command canceled");
+	if (event & RF_EventCmdAborted)
+		LOG_DBG("Command aborted");
+	if (event & RF_EventCmdStopped)
+		LOG_DBG("Command stopped");
+	if (event & RF_EventRatCh)
+		LOG_DBG("User RAT channel event");
+	if (event & RF_EventError)
+		LOG_DBG("Event error - see RF_Params::pErrCb");
+	if (event & RF_EventCmdPreempted)
+		LOG_DBG("Command preempted");
 }
 
-static void dumpBleSlave(const char *calling_func, rfc_CMD_BLE5_SLAVE_t *cmd) 
+static const char* const pdu_adv_type_to_string(enum pdu_adv_type pdu_adv_type)
 {
-	LOG_DBG("CMD_BLE_SLAVE: "
-		"commandNo: %04x "
-	    "status: %u "
-		"pNextOp: %p "
-		"startTime: %u "
-		"start{ "
-		"triggertType: %u "
-		"bEnaCmd: %u "
-		"triggerNo: %u "
-		"pastTrig: %u "
-		"} "
-		"cond { "
-		"rule: %u "
-		"nSkip: %u "
-		"} "
-		"channel: %u "
-		"whitening{ "
-		"init: %u "
-		"bOverride: %u "
-		"}"
-		,
-		cmd->commandNo,
-		cmd->status,
-		cmd->pNextOp,
-		cmd->startTime,
-		cmd->startTrigger.triggerType,
-		cmd->startTrigger.bEnaCmd,
-		cmd->startTrigger.triggerNo,
-		cmd->startTrigger.pastTrig,
-		cmd->condition.rule,
-		cmd->condition.nSkip,
-		cmd->channel,
-		cmd->whitening.init,
-		cmd->whitening.bOverride
-	);
+    switch (pdu_adv_type) {
+		case PDU_ADV_TYPE_ADV_IND:         return "ADV_IND";
+		case PDU_ADV_TYPE_DIRECT_IND:      return "DIRECT_IND";
+		case PDU_ADV_TYPE_NONCONN_IND:     return "NONCONN_IND";
+		case PDU_ADV_TYPE_SCAN_REQ:        return "SCAN_REQ";
+		case PDU_ADV_TYPE_SCAN_RSP:        return "SCAN_RSP";
+		case PDU_ADV_TYPE_CONNECT_IND:     return "CONNECT_IND";
+		case PDU_ADV_TYPE_SCAN_IND:        return "SCAN_IND";
+		case PDU_ADV_TYPE_EXT_IND:         return "EXT_IND";
+		case PDU_ADV_TYPE_AUX_CONNECT_RSP: return "AUX_CONNECT_RSP";
 
-	rfc_bleSlavePar_t *p = (rfc_bleSlavePar_t *)cmd->pParams;
-	LOG_DBG(
-		"params@%p: "
-		"pRxQ: %p "
-		"pTxQ: %p "
-		"rxConfig{ "
-		"bAutoFlushIgnored: %u "
-		"bAutoFlushCrcErr: %u "
-		"bAutoFlushEmpty: %u "
-		"bIncludeLenByte: %u "
-		"bIncludeCrc: %u "
-		"bAppendRssi: %u "
-		"bAppendStatus: %u "
-		"bAppendTimestamp: %u "
-		"} "
-		,
-		p,
-		p->pRxQ,
-		p->pTxQ,
-		p->rxConfig.bAutoFlushIgnored,
-		p->rxConfig.bAutoFlushCrcErr,
-		p->rxConfig.bAutoFlushEmpty,
-		p->rxConfig.bIncludeLenByte,
-		p->rxConfig.bIncludeCrc,
-		p->rxConfig.bAppendRssi,
-		p->rxConfig.bAppendStatus,
-		p->rxConfig.bAppendTimestamp
-	);
+		default: break;
+    }
 
-	LOG_DBG(
-		"seqStat{ "
-		"lastRxSn: %u "
-		"lastTxSn: %u "
-		"nextTxSn: %u "
-		"bFirstPkt: %u "
-		"bAutoEmpty: %u "
-		"bLlCtrlTx: %u "
-		"bLlCtrlAckRx: %u "
-		"bLlCtrlAckPending: %u "
-		"} "
-		"maxNack: %u"
-		"maxPkt: %u"
-		"accessAddress: %x"
-		"crcInit0: %02x "
-		"crcInit1: %02x "
-		"crcInit2: %02x "
-		,
-		p->seqStat.lastRxSn,
-		p->seqStat.lastTxSn,
-		p->seqStat.nextTxSn,
-		p->seqStat.bFirstPkt,
-		p->seqStat.bAutoEmpty,
-		p->seqStat.bLlCtrlTx,
-		p->seqStat.bLlCtrlAckRx,
-		p->seqStat.bLlCtrlAckPending,
-		p->maxNack,
-		p->maxPkt,
-		p->accessAddress,
-		p->crcInit0,
-		p->crcInit1,
-		p->crcInit2
-	);
+    return "unknown";
+}
 
-	LOG_DBG(
-		"timeout{ "
-		"triggerType: %u "
-		"bEnaCmd: %u "
-		"trigggerNo: %u "
-		"pastTrig: %u "
-		"} "
-		"timeoutTime: %u "
-		"end{ "
-		"triggerType: %u "
-		"bEnaCmd: %u "
-		"trigggerNo: %u "
-		"pastTrig: %u "
-		"} "
-		"endTime: %u "
-		,
-		p->timeoutTrigger.triggerType,
-		p->timeoutTrigger.bEnaCmd,
-		p->timeoutTrigger.triggerNo,
-		p->timeoutTrigger.pastTrig,
-		p->timeoutTime,
-		p->endTrigger.triggerType,
-		p->endTrigger.bEnaCmd,
-		p->endTrigger.triggerNo,
-		p->endTrigger.pastTrig,
-		p->endTime
-	);
+static const char* const pdu_data_type_to_string(const struct pdu_data* pdu_data)
+{
+    switch (pdu_data->ll_id) {
+        case PDU_DATA_LLID_RESV:          return "ID_RESV";
+        case PDU_DATA_LLID_DATA_CONTINUE: return "ID_DATA_CONTINUE";
+        case PDU_DATA_LLID_DATA_START:    return "ID_DATA_START";
 
-	rfc_bleMasterSlaveOutput_t *o = (rfc_bleMasterSlaveOutput_t *)cmd->pOutput;
+        case PDU_DATA_LLID_CTRL:
+            switch (((struct pdu_data_llctrl *)pdu_data)->opcode) {
+                case PDU_DATA_LLCTRL_TYPE_CONN_UPDATE_IND:   return "CTRL_TYPE_CONN_UPDATE_IND";
+                case PDU_DATA_LLCTRL_TYPE_CHAN_MAP_IND:      return "CTRL_TYPE_CHAN_MAP_IND";
+                case PDU_DATA_LLCTRL_TYPE_TERMINATE_IND:     return "CTRL_TYPE_TERMINATE_IND";
+                case PDU_DATA_LLCTRL_TYPE_ENC_REQ:           return "CTRL_TYPE_ENC_REQ";
+                case PDU_DATA_LLCTRL_TYPE_ENC_RSP:           return "CTRL_TYPE_ENC_RSP";
+                case PDU_DATA_LLCTRL_TYPE_START_ENC_REQ:     return "CTRL_TYPE_START_ENC_REQ";
+                case PDU_DATA_LLCTRL_TYPE_START_ENC_RSP:     return "CTRL_TYPE_START_ENC_RSP";
+                case PDU_DATA_LLCTRL_TYPE_UNKNOWN_RSP:       return "CTRL_TYPE_UNKNOWN_RSP";
+                case PDU_DATA_LLCTRL_TYPE_FEATURE_REQ:       return "CTRL_TYPE_FEATURE_REQ";
+                case PDU_DATA_LLCTRL_TYPE_FEATURE_RSP:       return "CTRL_TYPE_FEATURE_RSP";
+                case PDU_DATA_LLCTRL_TYPE_PAUSE_ENC_REQ:     return "CTRL_TYPE_PAUSE_ENC_REQ";
+                case PDU_DATA_LLCTRL_TYPE_PAUSE_ENC_RSP:     return "CTRL_TYPE_PAUSE_ENC_RSP";
+                case PDU_DATA_LLCTRL_TYPE_VERSION_IND:       return "CTRL_TYPE_VERSION_IND";
+                case PDU_DATA_LLCTRL_TYPE_REJECT_IND:        return "CTRL_TYPE_REJECT_IND";
+                case PDU_DATA_LLCTRL_TYPE_CONN_PARAM_REQ:    return "CTRL_TYPE_CONN_PARAM_REQ";
+                case PDU_DATA_LLCTRL_TYPE_CONN_PARAM_RSP:    return "CTRL_TYPE_CONN_PARAM_RSP";
+                case PDU_DATA_LLCTRL_TYPE_REJECT_EXT_IND:    return "CTRL_TYPE_REJECT_EXT_IND";
+                case PDU_DATA_LLCTRL_TYPE_PING_REQ:          return "CTRL_TYPE_PING_REQ";
+                case PDU_DATA_LLCTRL_TYPE_PING_RSP:          return "CTRL_TYPE_PING_RSP";
+                case PDU_DATA_LLCTRL_TYPE_LENGTH_REQ:        return "CTRL_TYPE_LENGTH_REQ";
+                case PDU_DATA_LLCTRL_TYPE_LENGTH_RSP:        return "CTRL_TYPE_LENGTH_RSP";
+                case PDU_DATA_LLCTRL_TYPE_PHY_REQ:           return "CTRL_TYPE_PHY_REQ";
+                case PDU_DATA_LLCTRL_TYPE_PHY_RSP:           return "CTRL_TYPE_PHY_RSP";
+                case PDU_DATA_LLCTRL_TYPE_PHY_UPD_IND:       return "CTRL_TYPE_PHY_UPD_IND";
+                case PDU_DATA_LLCTRL_TYPE_MIN_USED_CHAN_IND: return "CTRL_TYPE_MIN_USED_CHAN_IND";
 
-	LOG_DBG(
-		"pOutput@%p: "
-		"nTx: %u "
-		"nTxAck: %u "
-		"nTxCtrl: %u "
-		"nTxCtrlAck: %u "
-		"nTxCtrlAckAck: %u "
-		"nTxRetrans: %u "
-		"nTxEntryDone: %u "
-		"nRxOk: %u "
-		"nRxCtrl: %u "
-		"nRxCtrlAck: %u "
-		"nRxNok: %u "
-		"nRxIgnored: %u "
-		"nRxEmptry: %u "
-		,
-		o,
-		o->nTx,
-		o->nTxAck,
-		o->nTxCtrl,
-		o->nTxCtrlAck,
-		o->nTxCtrlAckAck,
-		o->nTxRetrans,
-		o->nTxEntryDone,
-		o->nRxOk,
-		o->nRxCtrl,
-		o->nRxCtrlAck,
-		o->nRxNok,
-		o->nRxIgnored,
-		o->nRxEmpty
-	);
+                default: return "CTRL_TYPE_UNKNOWN";
+            }
+            break;
 
-	LOG_DBG(
-		"nRxBufFull: %u "
-		"lastRssi: %d "
-		"pktStatus{ "
-		"bTimeStampValid: %u "
-		"bLastCrcErr: %u "
-		"bLastIgnored: %u "
-		"bLastEmpty: %u"
-		"bLastCtrl: %u"
-		"bLastMd: %u"
-		"bLastAck: %u"
-		"} "
-		"timeStamp: %u"
-		,
-		o->nRxBufFull,
-		o->lastRssi,
-		o->pktStatus.bTimeStampValid,
-		o->pktStatus.bLastCrcErr,
-		o->pktStatus.bLastIgnored,
-		o->pktStatus.bLastEmpty,
-		o->pktStatus.bLastCtrl,
-		o->pktStatus.bLastMd,
-		o->pktStatus.bLastAck,
-		o->timeStamp
-	);
+            default: break;
+        }
+
+    return "unknown";
 }
 
 #if defined(CONFIG_BT_CTLR_DEBUG_PINS)
 static void transmit_window_callback(RF_Handle h, RF_RatHandle rh, RF_EventMask e, uint32_t compareCaptureTime) {
 	uint32_t now = RF_getCurrentTime();
-
-	/*
-	BT_DBG("now: %u rh: %d compareCaptureTime: %u", now, rh, compareCaptureTime );
-	describe_event_mask(e);
-	*/
 
 	uint32_t begin = driver_data->window_begin_ticks;
 	uint32_t duration = driver_data->window_duration_ticks;
@@ -1136,12 +995,34 @@ static void transmit_window_debug(uint32_t begin, uint32_t duration, uint32_t in
 }
 #endif /* defined(CONFIG_BT_CTLR_DEBUG_PINS) */
 
+static bool pdu_is_adv(uint32_t access_address)
+{
+    return (access_address == PDU_AC_ACCESS_ADDR);
+}
+
+static RF_Op* get_rf_cmd(RF_CmdHandle commandNo)
+{
+    switch(commandNo) {
+        case CMD_FS:             return (RF_Op*)&driver_data->rf.cmd.fs;
+        case CMD_NOP:            return (RF_Op*)&driver_data->rf.cmd.nop;
+        case CMD_CLEAR_RX:       return (RF_Op*)&driver_data->rf.cmd.clear_rx;
+
+        case CMD_BLE5_RADIO_SETUP: return (RF_Op*)&driver_data->rf.cmd.ble5_radio_setup;
+        case CMD_BLE5_ADV:         return (RF_Op*)&driver_data->rf.cmd.ble5_adv;
+        case CMD_BLE_ADV_PAYLOAD:  return (RF_Op*)&driver_data->rf.cmd.ble_adv_payload;
+        case CMD_BLE5_GENERIC_RX:  return (RF_Op*)&driver_data->rf.cmd.ble5_generic_rx;
+        case CMD_BLE5_SLAVE:       return (RF_Op*)&driver_data->rf.cmd.ble5_slave;
+
+        default: break;
+    }
+
+	return NULL;
+}
+
 static void pkt_rx(const struct isr_radio_param *isr_radio_param)
 {
 	bool once = false;
 	rfc_dataEntryPointer_t *it;
-//	rfc_bleRadioOp_t *op =
-//		(rfc_bleRadioOp_t *)RF_getCmdOp(rfBleHandle, isr_radio_param->ch);
 
 	crc_valid = false;
 
@@ -1152,8 +1033,7 @@ static void pkt_rx(const struct isr_radio_param *isr_radio_param)
             size_t offs = it->pData[0];
             uint8_t *data = &it->pData[1];
 
-            bool pdu_is_adv = driver_data->access_address == PDU_AC_ACCESS_ADDR;
-            if ( pdu_is_adv ) {
+            if (pdu_is_adv(driver_data->access_address)) {
                 struct pdu_adv *pdu_rx = (struct pdu_adv *)data;
                 if ( PDU_ADV_TYPE_CONNECT_IND == pdu_rx->type ) {
                     offs++;
@@ -1180,10 +1060,8 @@ static void pkt_rx(const struct isr_radio_param *isr_radio_param)
 
             /* Add to AA time, PDU + CRC time */
             isr_timer_end = rtc_start + HAL_TICKER_US_TO_TICKS(len + sizeof(crc - 1));
-
-            pdu_is_adv = driver_data->access_address == PDU_AC_ACCESS_ADDR;
             
-            if ( pdu_is_adv ) {
+            if (pdu_is_adv(driver_data->access_address)) {
                 struct pdu_adv *pdu_rx = (struct pdu_adv *)data;
                 if ( PDU_ADV_TYPE_CONNECT_IND == pdu_rx->type ) {
                     uint32_t now = cntr_cnt_get();
@@ -1274,38 +1152,25 @@ void isr_radio(void)
 {
 	DEBUG_RADIO_ISR(1);
 
-	const isr_radio_param_t *const isr_radio_param = &radio_param;
+    const isr_radio_param_t *const isr_radio_param = &radio_param;
 
-	RF_EventMask irq = isr_radio_param->e;
-	rfc_bleRadioOp_t *op =
-		(rfc_bleRadioOp_t *)RF_getCmdOp(rfBleHandle, isr_radio_param->ch);
+	RF_Op *rf_op = RF_getCmdOp(rfBleHandle, isr_radio_param->ch);
 
-	if ( !( CMD_BLE_ADV == op->commandNo || CMD_NOP == op->commandNo ) ) {
-		LOG_DBG("now: %u h: %p ch: %u (%s) e: %" PRIx64, cntr_cnt_get(),
-			   isr_radio_param->h, isr_radio_param->ch,
-			   command_number_to_string(op->commandNo), isr_radio_param->e);
-        describe_event_mask(isr_radio_param->e);
-        LOG_DBG("%s", ble_status_to_string(op->status));
-	}
+    LOG_DBG("cnt: %u h: %p ch: 0x%04X (%s) e: %" PRIx64, 
+            cntr_cnt_get(), isr_radio_param->h,
+            isr_radio_param->ch, commandNo_to_string(rf_op->commandNo),
+            isr_radio_param->e);
+    LOG_DBG("status: %s (%u)",  ble_status_to_string(rf_op->status), rf_op->status);
+    log_dbg_event_mask(isr_radio_param->e);
 
-	if (CMD_BLE_SLAVE == op->commandNo) {
-		// pParams->seqStat.bFirstPkt shall be cleared by the radio CPU.
-		LOG_DBG("CMD_BLE_SLAVE timestamp: %u", driver_data->rf.cmd._ble_slave_output.timeStamp);
-		dumpBleSlave(__func__, &driver_data->rf.cmd.ble5_slave);
-	}
-
-	if (irq & RF_EventTxDone) {
-		if (timer_end_save) {
+    if(isr_radio_param->e & RF_EventTxDone) {
+        if (timer_end_save) {
 			timer_end = isr_timer_end;
 		}
 		radio_trx = 1;
-	}
+    }
 
-	if (irq & RF_EventRxNOk) {
-		LOG_DBG("Received packet with CRC error");
-	}
-
-	if (irq & (RF_EventRxOk | RF_EventRxEmpty | RF_EventRxEntryDone)) {
+	if (isr_radio_param->e & (RF_EventRxOk | RF_EventRxEmpty | RF_EventRxEntryDone)) {
 		/* Disable Rx timeout */
 		/* 0b1010..RX Cancel -- Cancels pending RX events but do not
 		 *			abort a RX-in-progress
@@ -1322,21 +1187,24 @@ void isr_radio(void)
 		}
 	}
 
-	if (irq & RF_EventLastCmdDone) {
+	if (isr_radio_param->e & RF_EventLastCmdDone) {
 		/* Disable both comparators */
 		RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
 	}
 
-	if (radio_trx && next_radio_cmd) {
+    LOG_DBG("radio_trx: %u next_radio_cmd %u (%s)", 
+            radio_trx, next_radio_commandNo, commandNo_to_string(next_radio_commandNo));
+
+    RF_Op* next_radio_cmd = get_rf_cmd(next_radio_commandNo);
+	if ((radio_trx > 0) && (next_radio_cmd != NULL)) {
 		/* Start Rx/Tx in TIFS */
 		next_radio_cmd->startTrigger.triggerType = TRIG_ABSTIME;
 		next_radio_cmd->startTrigger.pastTrig = true;
 		next_radio_cmd->startTime = cntr_cnt_get();
 
-		driver_data->rf.cmd.active_handle =
-			RF_postCmd(rfBleHandle, (RF_Op *)next_radio_cmd,
-				   RF_PriorityNormal, rf_callback, RF_EVENT_MASK);
-		next_radio_cmd = NULL;
+		driver_data->rf.cmd.active_handle = RF_postCmd(rfBleHandle, next_radio_cmd, 
+                                                       RF_PriorityNormal, rf_callback, RF_EVENT_MASK);
+		next_radio_commandNo = 0;
 	}
 
 	isr_cb(isr_cb_param);
@@ -1375,14 +1243,13 @@ static void ble_cc13xx_cc26xx_data_init(void)
 	    sys_memcpy_swap(driver_data->device_address, (uint8_t *)(CCFG_BASE + CCFG_O_IEEE_BLE_0), 6);
     }
 
-	LOG_INF("device address: %02x:%02x:%02x:%02x:%02x:%02x", 
+	LOG_DBG("device address: %02x:%02x:%02x:%02x:%02x:%02x", 
             driver_data->device_address[0], driver_data->device_address[1],
 	        driver_data->device_address[2], driver_data->device_address[3], 
             driver_data->device_address[4], driver_data->device_address[5]);
 
-#warning "check if static is used"
 	/* Ensure that this address is marked as _random_ */
-	// driver_data->rf.cmd._ble_adv_param.advConfig.deviceAddrType = 1;
+	driver_data->rf.cmd._ble_adv_param.advConfig.deviceAddrType = 1;
 
 	/* Setup circular RX queue (TRM 25.3.2.7) */
 	memset(&driver_data->rf.rx.entry[0], 0, sizeof(driver_data->rf.rx.entry[0]));
@@ -1475,17 +1342,16 @@ void radio_setup(void)
 	ble_cc13xx_cc26xx_data_init();
 
 	rfBleHandle = RF_open(&rfObject, &RF_modeBle, 
-               (RF_RadioSetup*)&driver_data->rf.cmd.ble5_radio_setup, 
-               &rfBleParams);
+                          (RF_RadioSetup*)&driver_data->rf.cmd.ble5_radio_setup, 
+                          &rfBleParams);
 	LL_ASSERT(rfBleHandle);
 
-	RF_runCmd(rfBleHandle, (RF_Op *)&driver_data->rf.cmd.set_frequency,
-		                    RF_PriorityNormal, NULL, RF_EventLastCmdDone);
+	RF_runCmd(rfBleHandle, (RF_Op *)&driver_data->rf.cmd.fs, 
+              RF_PriorityNormal, NULL, RF_EventLastCmdDone);
 
 	/* Get warmpup times. They are used in TIFS calculations */
 	tx_warmup = 0; /* us */
 	rx_warmup = 0; /* us */
-
 	get_isr_latency();
 }
 
@@ -1549,7 +1415,7 @@ void radio_freq_chan_set(uint32_t chan)
 	LL_ASSERT(!(chan & 0x1));
 
 	uint8_t index = chan - 2;
-	driver_data->whiten = channel_table[index].whitening;
+	driver_data->whiten = frequency_table[index].whitening;
 
 	switch (chan) {
 	case 2:
@@ -1583,7 +1449,7 @@ void radio_whiten_iv_set(uint32_t iv)
 
 	uint8_t index = iv - 2;
 
-	driver_data->whiten = channel_table[index].whitening;
+	driver_data->whiten = frequency_table[index].whitening;
 */
 }
 
@@ -1607,231 +1473,82 @@ void radio_pkt_rx_set(void *rx_packet)
 
 void radio_pkt_tx_set(void *tx_packet)
 {
-	char* typespecstr = "(unknown)";
-	bool pdu_is_adv = driver_data->access_address == PDU_AC_ACCESS_ADDR;
-	int16_t command_no = -1;
-
-	tx_packet_ptr = tx_packet;
-	next_tx_radio_cmd = NULL;
-
+    RF_CmdHandle tx_commandNo = 0;
 	/* There are a number of TX commands that simply cannot be performed
 	 * in isolation using this platform. E.g. SCAN_RSP. There is no command
 	 * to initiate that particular PDU. It is typically sent automatically
 	 * after a SCAN_REQ is received (which is also automatic).
 	 */
 	driver_data->ignore_next_tx = false;
+    next_tx_radio_commandNo = 0;
 
-	if (pdu_is_adv) {
-		const struct pdu_adv *pdu_adv =
-			(const struct pdu_adv *)tx_packet;
-		if ((pdu_adv->type == PDU_ADV_TYPE_ADV_IND) 
-        ||  (pdu_adv->type == PDU_ADV_TYPE_NONCONN_IND)
-        ||  (pdu_adv->type == PDU_ADV_TYPE_SCAN_IND)) {
-			update_adv_data((uint8_t *)pdu_adv->adv_ind.data,
-					pdu_adv->len -
-						sizeof(pdu_adv->adv_ind.addr),
-					false);
-		}
+	tx_packet_ptr = tx_packet;
 
-		switch (pdu_adv->type) {
-		case PDU_ADV_TYPE_ADV_IND:
-			command_no = CMD_BLE_ADV;
-			typespecstr = "ADV: ADV_IND";
-			next_tx_radio_cmd =
-				(rfc_bleRadioOp_t *)&driver_data->rf.cmd.ble5_adv;
-			break;
-		case PDU_ADV_TYPE_DIRECT_IND:
-			typespecstr = "ADV: DIRECT_IND";
-			break;
-		case PDU_ADV_TYPE_NONCONN_IND:
-			typespecstr = "ADV: NONCONN_IND";
-			break;
-		case PDU_ADV_TYPE_SCAN_REQ:
-			typespecstr = "ADV: SCAN_REQ";
-			break;
-		case PDU_ADV_TYPE_SCAN_RSP:
-			driver_data->ignore_next_tx = true;
-			break;
-		case PDU_ADV_TYPE_CONNECT_IND:
-			typespecstr = "ADV: CONNECT_IND";
-			break;
-		case PDU_ADV_TYPE_SCAN_IND:
-			typespecstr = "SCAN_IND";
-			break;
-		case PDU_ADV_TYPE_EXT_IND:
-			typespecstr = "ADV: EXT_IND";
-			break;
-		case PDU_ADV_TYPE_AUX_CONNECT_RSP:
-			typespecstr = "ADV: AUX_CONNECT_RSP";
-			break;
-		default:
-			typespecstr = "ADV: (unknown)";
-			break;
-		}
+	if (pdu_is_adv(driver_data->access_address)) {
+        const struct pdu_adv *pdu_adv = (const struct pdu_adv *)tx_packet;
+        
+        LOG_DBG("type: %u (PDU_ADV_%s)", pdu_adv->type, pdu_adv_type_to_string(pdu_adv->type));
+        LOG_DBG("rfu: %u chan_sel: %u tx_addr: %u rx_addr %u", 
+        pdu_adv->rfu, pdu_adv->chan_sel, pdu_adv->tx_addr, pdu_adv->rx_addr);
 
-        if ( NULL != typespecstr ) {
-			LOG_INF(
-				"PDU %s: {\n\t"
-				"rx_addr: %u\n\t"
-				"tx_addr: %u\n\t"
-				"chan_sel: %u\n\t"
-				"rfu: %u\n\t"
-				"type: %u\n\t"
-				"len: %u\n\t"
-				"}"
-				,
-				typespecstr,
-                pdu_adv->rx_addr,
-	            pdu_adv->tx_addr,
-                pdu_adv->chan_sel,
-                pdu_adv->rfu,
-                pdu_adv->type,
-                pdu_adv->len
-			);
-		}
+        switch (pdu_adv->type) {
+           case PDU_ADV_TYPE_ADV_IND:
+           case PDU_ADV_TYPE_NONCONN_IND:
+           case PDU_ADV_TYPE_SCAN_IND:
+                update_adv_data((uint8_t *)pdu_adv->adv_ind.data, (pdu_adv->len - sizeof(pdu_adv->adv_ind.addr)), false);
+                break;
+           
+            default: break;
+        }
 
-	} else {
-		/* PDU is data */
-		const struct pdu_data *pdu_data =
-			(const struct pdu_data *)tx_packet;
+        switch (pdu_adv->type) {
+           case PDU_ADV_TYPE_ADV_IND:
+                tx_commandNo = CMD_BLE5_ADV;
+                break;
+
+            case PDU_ADV_TYPE_SCAN_RSP:
+                driver_data->ignore_next_tx = true;
+                break;
+            
+            default: break;
+        }
+	} else { /* PDU is data */
+		const struct pdu_data* pdu_data = (const struct pdu_data*)tx_packet;
+        LOG_DBG("type: %u (PDU_DATA_LL%s)", pdu_data->ll_id, pdu_data_type_to_string(pdu_data));
+        LOG_DBG("ll_id: %u nesn: %u sn: %u md: %u rfu: %u len: %u", 
+            pdu_data->ll_id, pdu_data->nesn, pdu_data->sn, pdu_data->md, pdu_data->rfu, pdu_data->len);
+
 		switch (pdu_data->ll_id) {
-		case PDU_DATA_LLID_DATA_CONTINUE:
-			typespecstr = "DATA: DATA_CONTINUE";
-            driver_data->rf.tx.entry[0].length = MIN((PDU_DC_LL_HEADER_SIZE + pdu_data->len) ,RF_TX_BUFFER_SIZE);
-			memcpy(&driver_data->rf.tx.data[0], pdu_data, driver_data->rf.tx.entry[0].length);
-			driver_data->rf.tx.entry[0].status = DATA_ENTRY_PENDING;
-			break;
-		case PDU_DATA_LLID_DATA_START:
-			typespecstr = "DATA: DATA_START";
-			break;
-		case PDU_DATA_LLID_CTRL:
-			switch (((struct pdu_data_llctrl *)pdu_data)->opcode) {
-			case PDU_DATA_LLCTRL_TYPE_CONN_UPDATE_IND:
-				typespecstr = "DATA: CTRL: CONN_UPDATE_IND";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_CHAN_MAP_IND:
-				typespecstr = "DATA: CTRL: CHAN_MAP_IND";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_TERMINATE_IND:
-				typespecstr = "DATA: CTRL: TERMINATE_IND";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_ENC_REQ:
-				typespecstr = "DATA: CTRL: ENC_REQ";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_ENC_RSP:
-				typespecstr = "DATA: CTRL: ENC_RSP";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_START_ENC_REQ:
-				typespecstr = "DATA: CTRL: START_ENC_REQ";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_START_ENC_RSP:
-				typespecstr = "DATA: CTRL: START_ENC_RSP";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_UNKNOWN_RSP:
-				typespecstr = "DATA: CTRL: UNKNOWN_RSP";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_FEATURE_REQ:
-				typespecstr = "DATA: CTRL: FEATURE_REQ";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_FEATURE_RSP:
-				typespecstr = "DATA: CTRL: FEATURE_RSP";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_PAUSE_ENC_REQ:
-				typespecstr = "DATA: CTRL: PAUSE_ENC_REQ";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_PAUSE_ENC_RSP:
-				typespecstr = "DATA: CTRL: PAUSE_ENC_RSP";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_VERSION_IND:
-				typespecstr = "DATA: CTRL: VERSION_IND";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_REJECT_IND:
-				typespecstr = "DATA: CTRL: REJECT_IND";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_CONN_PARAM_REQ:
-				typespecstr = "DATA: CTRL: CONN_PARAM_REQ";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_CONN_PARAM_RSP:
-				typespecstr = "DATA: CTRL: CONN_PARAM_RSP";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_REJECT_EXT_IND:
-				typespecstr = "DATA: CTRL: REJECT_EXT_IND";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_PING_REQ:
-				typespecstr = "DATA: CTRL: PING_REQ";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_PING_RSP:
-				typespecstr = "DATA: CTRL: PING_RSP";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_LENGTH_REQ:
-				typespecstr = "DATA: CTRL: LENGTH_REQ";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_LENGTH_RSP:
-				typespecstr = "DATA: CTRL: LENGTH_RSP";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_PHY_REQ:
-				typespecstr = "DATA: CTRL: PHY_REQ";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_PHY_RSP:
-				typespecstr = "DATA: CTRL: PHY_RSP";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_PHY_UPD_IND:
-				typespecstr = "DATA: CTRL: PHY_UPD_IND";
-				break;
-			case PDU_DATA_LLCTRL_TYPE_MIN_USED_CHAN_IND:
-				typespecstr = "DATA: CTRL: MIN_USED_CHAN_IND";
-				break;
-			default:
-				typespecstr = "DATA: CTRL: (unknown)";
-				break;
-			}
-			break;
+		    case PDU_DATA_LLID_DATA_CONTINUE:
+                driver_data->rf.tx.entry[0].length = MIN((PDU_DC_LL_HEADER_SIZE + pdu_data->len) ,RF_TX_BUFFER_SIZE);
+                memcpy(&driver_data->rf.tx.data[0], pdu_data, driver_data->rf.tx.entry[0].length);
+                driver_data->rf.tx.entry[0].status = DATA_ENTRY_PENDING;
+                break;
 
-		default:
-			typespecstr = "DATA: (unknown)";
-			break;
-		}
-
-		if ( NULL != typespecstr ) {
-			LOG_INF(
-				"PDU %s: {\n\t"
-				"ll_id: %u\n\t"
-				"nesn: %u\n\t"
-				"sn: %u\n\t"
-				"md: %u\n\t"
-				"rfu: %u\n\t"
-				"len: %u\n\t"
-				"}"
-				,
-				typespecstr,
-				pdu_data->ll_id,
-				pdu_data->nesn,
-				pdu_data->sn,
-				pdu_data->md,
-				pdu_data->rfu,
-				pdu_data->len
-			);
+		    default: break;
 		}
 	}
 
 	if (driver_data->ignore_next_tx) {
-		LOG_DBG("ignoring next TX %s", command_number_to_string(command_no));
+		LOG_DBG("ignoring next tx %s", commandNo_to_string(next_tx_radio_commandNo));
 		return;
 	}
 
-	if ( -1 == command_no || NULL == next_tx_radio_cmd ) {
-//		LL_ASSERT(command_no != -1);
-//		LL_ASSERT(next_tx_radio_cmd != NULL);
+	if (tx_commandNo == 0 ) {
 		return;
 	}
 
-	next_tx_radio_cmd->commandNo = command_no;
+    next_tx_radio_commandNo = tx_commandNo;
 
-	if ((CMD_BLE_ADV == command_no) 
-    ||  (CMD_BLE_ADV_DIR == command_no)
-    ||  (CMD_BLE_ADV_NC == command_no)
-    ||  (CMD_BLE_ADV_SCAN == command_no)) {
-		driver_data->ignore_next_rx = true;
+    switch (next_tx_radio_commandNo)
+    {
+        case CMD_BLE5_ADV:
+        case CMD_BLE5_ADV_DIR:
+        case CMD_BLE5_ADV_NC:
+        case CMD_BLE5_ADV_SCAN:
+		    driver_data->ignore_next_rx = true;
+        
+        default: break;
 	}
 }
 
@@ -1863,17 +1580,15 @@ void radio_rx_enable(void)
 void radio_tx_enable(void)
 {
 	if (!driver_data->ignore_next_tx) {
-		LL_ASSERT(next_tx_radio_cmd != NULL);
-		next_radio_cmd = next_tx_radio_cmd;
+		LL_ASSERT(next_tx_radio_commandNo != 0);
+		next_radio_commandNo = next_tx_radio_commandNo;
 		radio_tmr_start_now(true);
 	}
 }
 
 void radio_disable(void)
 {
-	//LOG_DBG("now: %u", cntr_cnt_get());
-	/*
-	 * 0b1011..Abort All - Cancels all pending events and abort any
+	/* 0b1011..Abort All - Cancels all pending events and abort any
 	 * sequence-in-progress
 	 */
 	RFCDoorbellSendTo(CMDR_DIR_CMD(CMD_ABORT));
@@ -1882,10 +1597,10 @@ void radio_disable(void)
 	RFCDoorbellSendTo((uint32_t)&driver_data->rf.cmd.clear_rx);
 
 	/* generate interrupt to get into isr_radio */
-	RF_postCmd(rfBleHandle, (RF_Op *)&driver_data->rf.cmd.nop, RF_PriorityNormal,
-		   rf_callback, RF_EventLastCmdDone);
+	RF_postCmd(rfBleHandle, (RF_Op *)&driver_data->rf.cmd.nop, 
+               RF_PriorityNormal, rf_callback, RF_EventLastCmdDone);
 
-	next_radio_cmd = NULL;
+	next_radio_commandNo = 0;
 }
 
 void radio_status_reset(void)
@@ -1973,9 +1688,8 @@ void *radio_pkt_big_ctrl_get(void)
 void radio_switch_complete_and_rx(uint8_t phy_rx)
 {
 	/*  0b0110..RX Start @ T1 Timer Compare Match (EVENT_TMR = T1_CMP) */
-	if (!driver_data->ignore_next_rx && NULL == next_radio_cmd) {
-		next_radio_cmd =
-			(rfc_bleRadioOp_t *)&driver_data->rf.cmd.ble5_generic_rx;
+	if ((driver_data->ignore_next_rx == false) && (next_radio_commandNo == 0)) {
+		next_radio_commandNo = CMD_BLE5_GENERIC_RX;
 	}
 
 	/* the margin is used to account for any overhead in radio switching */
@@ -1987,7 +1701,7 @@ void radio_switch_complete_and_tx(uint8_t phy_rx, uint8_t flags_rx,
 {
 	/*  0b0010..TX Start @ T1 Timer Compare Match (EVENT_TMR = T1_CMP) */
 	if (driver_data->ignore_next_tx) {
-		next_radio_cmd = next_tx_radio_cmd;
+		next_radio_commandNo = next_tx_radio_commandNo;
 	}
 
 	/* the margin is used to account for any overhead in radio switching */
@@ -1997,7 +1711,7 @@ void radio_switch_complete_and_tx(uint8_t phy_rx, uint8_t flags_rx,
 void radio_switch_complete_and_disable(void)
 {
 	RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
-	next_radio_cmd = NULL;
+	next_radio_commandNo = 0;
 }
 
 void radio_rssi_measure(void)
@@ -2106,99 +1820,94 @@ void radio_tmr_tifs_set(uint32_t tifs)
 /* Start the radio after ticks_start (ticks) + remainder (us) time */
 static uint32_t radio_tmr_start_hlp(uint8_t trx, uint32_t ticks_start, uint32_t remainder)
 {
-	rfc_bleRadioOp_t *radio_start_now_cmd = NULL;
-	uint32_t now = cntr_cnt_get();
+    RF_CmdHandle start_now_radio_commandNo = 0;
+    uint32_t now = cntr_cnt_get();
 
-	/* Save it for later */
-	/* rtc_start = ticks_start; */
+    /* Save it for later */
+    /* rtc_start = ticks_start; */
 
-	/* Convert ticks to us and use just EVENT_TMR */
-	rtc_diff_start_us = HAL_TICKER_TICKS_TO_US(rtc_start - now);
+    /* Convert ticks to us and use just EVENT_TMR */
+    rtc_diff_start_us = HAL_TICKER_TICKS_TO_US(rtc_start - now);
 
-	skip_hcto = 0;
-	if (rtc_diff_start_us > 0x80000000) {
-		LOG_DBG("dropped command");
-		/* ticks_start already passed. Don't start the radio */
-		rtc_diff_start_us = 0;
+    skip_hcto = 0;
+    if (rtc_diff_start_us > 0x80000000) {
+        LOG_DBG("dropped command");
+        /* ticks_start already passed. Don't start the radio */
+        rtc_diff_start_us = 0;
 
-		/* Ignore time out as well */
-		skip_hcto = 1;
-		remainder = 0;
-		//return remainder;
-	}
+        /* Ignore time out as well */
+        skip_hcto = 1;
+        remainder = 0;
+        //return remainder;
+    }
 
-	if (trx) {
-		if (remainder <= MIN_CMD_TIME) {
-			/* 0b0001..TX Start Now */
-			radio_start_now_cmd = next_tx_radio_cmd;
-			remainder = 0;
-		} else {
-			/*
-			 * 0b0010..TX Start @ T1 Timer Compare Match
-			 *         (EVENT_TMR = T1_CMP)
-			 */
-			next_radio_cmd = next_tx_radio_cmd;
-		}
-		timer_ready = remainder + tx_warmup;
+    if (trx) {
+        if (remainder <= MIN_CMD_TIME) {
+            /* 0b0001..TX Start Now */
+            start_now_radio_commandNo = next_tx_radio_commandNo;
+            remainder = 0;
+        } else {
+            /* 0b0010..TX Start @ T1 Timer Compare Match (EVENT_TMR = T1_CMP) */
+            next_radio_commandNo = next_tx_radio_commandNo;
+        }
+        timer_ready = remainder + tx_warmup;
 
-		if (driver_data->ignore_next_tx) {
-			LOG_DBG("ignoring next TX command");
-			return remainder;
-		}
-	} else {
-		if (next_radio_cmd == NULL) {
-			next_radio_cmd = (rfc_bleRadioOp_t *)&driver_data->rf.cmd.ble5_generic_rx;
-		}
+        if (driver_data->ignore_next_tx) {
+            LOG_DBG("ignoring next TX command");
+            return remainder;
+        }
+    } else {
+        if (next_radio_commandNo == 0) {
+            next_radio_commandNo = CMD_BLE5_GENERIC_RX;
+        }
 
-		if (remainder <= MIN_CMD_TIME) {
-			/* 0b0101..RX Start Now */
-			radio_start_now_cmd = next_radio_cmd;
-			remainder = 0;
-		} else {
-			/*
-			 * 0b0110..RX Start @ T1 Timer Compare Match
-			 *         (EVENT_TMR = T1_CMP)
-			 */
-		}
-		timer_ready = remainder + rx_warmup;
+        if (remainder <= MIN_CMD_TIME) {
+            /* 0b0101..RX Start Now */
+            start_now_radio_commandNo = next_radio_commandNo;
+            remainder = 0;
+        } else {
+            /*
+            * 0b0110..RX Start @ T1 Timer Compare Match
+            *         (EVENT_TMR = T1_CMP)
+            */
+        }
+        timer_ready = remainder + rx_warmup;
 
-		if (driver_data->ignore_next_rx) {
-			return remainder;
-		}
-	}
+        if (driver_data->ignore_next_rx) {
+            return remainder;
+        }
+    }
 
-	if (radio_start_now_cmd) {
+    LOG_DBG("start_now_radio_cmd: 0x%04X (%s) next_radio_cmd 0x%04X (%s)", 
+            start_now_radio_commandNo, commandNo_to_string(start_now_radio_commandNo), 
+            next_radio_commandNo, commandNo_to_string(next_radio_commandNo));
+    
+    rfc_ble5RadioOp_t* radio_cmd = NULL;
+    uint32_t startTime = 0;
+	if (start_now_radio_commandNo > 0) {
+        radio_cmd = (rfc_ble5RadioOp_t*)get_rf_cmd(start_now_radio_commandNo);
+        startTime = now;
+    }
+    else if (next_radio_commandNo > 0) {
+        radio_cmd = (rfc_ble5RadioOp_t*)get_rf_cmd(next_radio_commandNo);
+        startTime = now + remainder;
+    }
 
-		/* trigger Rx/Tx Start Now */
-		radio_start_now_cmd->channel = driver_data->channel;
-		if ( CMD_BLE_SLAVE == next_radio_cmd->commandNo ) {
-			// timing is done in radio_set_up_slave_cmd()
-		} else {
-			radio_start_now_cmd->startTime = now;
-			radio_start_now_cmd->startTrigger.triggerType = TRIG_ABSTIME;
-			radio_start_now_cmd->startTrigger.pastTrig = true;
-		}
-		driver_data->rf.cmd.active_handle =
-			RF_postCmd(rfBleHandle, (RF_Op *)radio_start_now_cmd,
-				   RF_PriorityNormal, rf_callback, RF_EVENT_MASK);
-	} else {
-		if (next_radio_cmd != NULL) {
-			/* enable T1_CMP to trigger the SEQCMD */
-			/* trigger Rx/Tx Start Now */
-			next_radio_cmd->channel = driver_data->channel;
-			if ( CMD_BLE_SLAVE == next_radio_cmd->commandNo ) {
-				// timing is done in radio_set_up_slave_cmd()
-			} else {
-				next_radio_cmd->startTime = now + remainder;
-				next_radio_cmd->startTrigger.triggerType = TRIG_ABSTIME;
-				next_radio_cmd->startTrigger.pastTrig = true;
-			}
-			driver_data->rf.cmd.active_handle =
-				RF_postCmd(rfBleHandle, (RF_Op *)next_radio_cmd,
-					   RF_PriorityNormal, rf_callback,
-					   RF_EVENT_MASK);
-		}
-	}
+    if(radio_cmd == NULL) {
+        return remainder;
+    }
+
+    radio_cmd->channel = driver_data->channel;
+    if ( next_radio_commandNo == CMD_BLE5_SLAVE ) {
+        /* timing is done in radio_set_up_slave_cmd() */
+    } else {
+        radio_cmd->startTime = startTime;
+        radio_cmd->startTrigger.triggerType = TRIG_ABSTIME;
+        radio_cmd->startTrigger.pastTrig = true;
+    }
+
+    driver_data->rf.cmd.active_handle = RF_postCmd(rfBleHandle, (RF_Op*)radio_cmd,
+                                                   RF_PriorityNormal, rf_callback, RF_EVENT_MASK);
 
 	return remainder;
 }
