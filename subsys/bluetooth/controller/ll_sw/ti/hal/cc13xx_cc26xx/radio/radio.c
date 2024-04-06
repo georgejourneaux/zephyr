@@ -47,7 +47,7 @@
 
 #define LOG_LEVEL CONFIG_BT_HCI_DRIVER_LOG_LEVEL
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(bt_ti_radio, LOG_LEVEL_DBG);
+LOG_MODULE_REGISTER(bt_ti_radio);
 
 /* CTEINLINE S0_MASK for periodic advertising PUDs. It allows to accept all types of extended
  * advertising PDUs to have CTE included.
@@ -1284,7 +1284,7 @@ void radio_isr_set(radio_isr_cb_t cb, void *param)
 static void rat_deferred_hcto_callback(RF_Handle h, RF_RatHandle rh,
 				       RF_EventMask e, uint32_t compareCaptureTime)
 {
-	LOG_DBG("cntr: %u", cntr_cnt_get());
+	LOG_DBG("cntr %u (%u)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get())); 
 	RF_cancelCmd(rfBleHandle, driver_data->rf.cmd.active_handle, RF_ABORT_GRACEFULLY);
 	driver_data->rf.cmd.active_handle = -1;
 }
@@ -1547,11 +1547,9 @@ void radio_pkt_tx_set(void *tx_packet)
 
 	if (pdu_is_adv(driver_data->access_address)) {
         const struct pdu_adv* pdu_adv = (const struct pdu_adv*)tx_packet;
-        
-        LOG_DBG("PDU_ADV_%s (0x%04X)", pdu_adv_type_to_string(pdu_adv->type), pdu_adv->type);
-        LOG_DBG("rfu %u, chan_sel %u, tx_addr %u, rx_addr %u, len %u", 
-        pdu_adv->rfu, pdu_adv->chan_sel, pdu_adv->tx_addr, pdu_adv->rx_addr, pdu_adv->len);
-        dbg_pdu_adv_data(pdu_adv);
+
+        LOG_DBG("PDU_ADV_%s (0x%04X) cntr %u (%u)", pdu_adv_type_to_string(pdu_adv->type), pdu_adv->type, cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
+        // dbg_pdu_adv_data(pdu_adv);
 
         switch (pdu_adv->type) {
            case PDU_ADV_TYPE_ADV_IND:
@@ -1576,9 +1574,7 @@ void radio_pkt_tx_set(void *tx_packet)
         }
 	} else { /* PDU is data */
 		const struct pdu_data* pdu_data = (const struct pdu_data*)tx_packet;
-        LOG_DBG("PDU_DATA_LL%s (0x%04X)", pdu_data_type_to_string(pdu_data), pdu_data->ll_id);
-        LOG_DBG("ll_id: %u nesn: %u sn: %u md: %u rfu: %u len: %u", 
-            pdu_data->ll_id, pdu_data->nesn, pdu_data->sn, pdu_data->md, pdu_data->rfu, pdu_data->len);
+        LOG_DBG("PDU_DATA_LL%s (0x%04X) cntr %u (%u)", pdu_data_type_to_string(pdu_data), pdu_data->ll_id, cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
 
 		switch (pdu_data->ll_id) {
 		    case PDU_DATA_LLID_DATA_CONTINUE:
@@ -1650,7 +1646,7 @@ void radio_tx_enable(void)
 
 void radio_disable(void)
 {
-    LOG_DBG("cntr %u", cntr_cnt_get());
+    LOG_DBG("cntr %u (%u)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
 	/* 0b1011..Abort All - Cancels all pending events and abort any
 	 * sequence-in-progress
 	 */
