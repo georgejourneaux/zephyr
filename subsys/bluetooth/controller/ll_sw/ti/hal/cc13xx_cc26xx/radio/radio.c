@@ -39,11 +39,13 @@
 #include "hal/ticker.h"
 #include "hal/cc13xx_cc26xx/ll_irqs.h"
 
-#include "ll_sw/pdu_df.h"
 #include "lll/pdu_vendor.h"
+
+#include "ll_sw/pdu_df.h"
 #include "ll_sw/pdu.h"
 
 #include "radio_internal.h"
+#include "RFQueue.h"
 
 #define LOG_LEVEL CONFIG_BT_HCI_DRIVER_LOG_LEVEL
 #include <zephyr/logging/log.h>
@@ -85,57 +87,54 @@ LOG_MODULE_REGISTER(bt_ti_radio);
 
 #define TXPOWERTABLE_2400_PA5_SIZE (16) // 2400 MHz, 5 dBm
 
-#define DEFAULT_CHANNEL (37) 
-
 #define TX_MARGIN    (0)
 #define RX_MARGIN    (8)
 #define Rx_OVHD      (32) /* Rx overhead, depends on PHY type */
 #define MIN_CMD_TIME (400) /* Minimum interval for a delayed radio cmd */
 
-typedef enum BLE_FREQUENCY_TABLE_ENTRY {
-    BLE_FREQUENCY_TABLE_ENTRY_2402 = 0,
-    BLE_FREQUENCY_TABLE_ENTRY_2404,
-    BLE_FREQUENCY_TABLE_ENTRY_2406,
-    BLE_FREQUENCY_TABLE_ENTRY_2408,
-    BLE_FREQUENCY_TABLE_ENTRY_2410,
-    BLE_FREQUENCY_TABLE_ENTRY_2412,
-    BLE_FREQUENCY_TABLE_ENTRY_2414,
-    BLE_FREQUENCY_TABLE_ENTRY_2416,
-    BLE_FREQUENCY_TABLE_ENTRY_2418,
-    BLE_FREQUENCY_TABLE_ENTRY_2420,
-    BLE_FREQUENCY_TABLE_ENTRY_2422,
-    BLE_FREQUENCY_TABLE_ENTRY_2424,
-    BLE_FREQUENCY_TABLE_ENTRY_2426,
-    BLE_FREQUENCY_TABLE_ENTRY_2428,
-    BLE_FREQUENCY_TABLE_ENTRY_2430,
-    BLE_FREQUENCY_TABLE_ENTRY_2432,
-    BLE_FREQUENCY_TABLE_ENTRY_2434,
-    BLE_FREQUENCY_TABLE_ENTRY_2436,
-    BLE_FREQUENCY_TABLE_ENTRY_2438,
-    BLE_FREQUENCY_TABLE_ENTRY_2440,
-    BLE_FREQUENCY_TABLE_ENTRY_2442,
-    BLE_FREQUENCY_TABLE_ENTRY_2444,
-    BLE_FREQUENCY_TABLE_ENTRY_2446,
-    BLE_FREQUENCY_TABLE_ENTRY_2448,
-    BLE_FREQUENCY_TABLE_ENTRY_2450,
-    BLE_FREQUENCY_TABLE_ENTRY_2452,
-    BLE_FREQUENCY_TABLE_ENTRY_2454,
-    BLE_FREQUENCY_TABLE_ENTRY_2456,
-    BLE_FREQUENCY_TABLE_ENTRY_2458,
-    BLE_FREQUENCY_TABLE_ENTRY_2460,
-    BLE_FREQUENCY_TABLE_ENTRY_2462,
-    BLE_FREQUENCY_TABLE_ENTRY_2464,
-    BLE_FREQUENCY_TABLE_ENTRY_2466,
-    BLE_FREQUENCY_TABLE_ENTRY_2468,
-    BLE_FREQUENCY_TABLE_ENTRY_2470,
-    BLE_FREQUENCY_TABLE_ENTRY_2472,
-    BLE_FREQUENCY_TABLE_ENTRY_2474,
-    BLE_FREQUENCY_TABLE_ENTRY_2476,
-    BLE_FREQUENCY_TABLE_ENTRY_2478,
-    BLE_FREQUENCY_TABLE_ENTRY_2480,
+typedef enum BLE_CHANNEL_FREQUENCY {
+    BLE_CHANNEL_FREQUENCY_2402 = 37,
+    BLE_CHANNEL_FREQUENCY_2404 =  0,
+    BLE_CHANNEL_FREQUENCY_2406 =  1,
+    BLE_CHANNEL_FREQUENCY_2408 =  2,
+    BLE_CHANNEL_FREQUENCY_2410 =  3,
+    BLE_CHANNEL_FREQUENCY_2412 =  4,
+    BLE_CHANNEL_FREQUENCY_2414 =  5,
+    BLE_CHANNEL_FREQUENCY_2416 =  6,
+    BLE_CHANNEL_FREQUENCY_2418 =  7,
+    BLE_CHANNEL_FREQUENCY_2420 =  8,
+    BLE_CHANNEL_FREQUENCY_2422 =  9,
+    BLE_CHANNEL_FREQUENCY_2424 = 10,
+    BLE_CHANNEL_FREQUENCY_2426 = 38,
+    BLE_CHANNEL_FREQUENCY_2428 = 11,
+    BLE_CHANNEL_FREQUENCY_2430 = 12,
+    BLE_CHANNEL_FREQUENCY_2432 = 13,
+    BLE_CHANNEL_FREQUENCY_2434 = 14,
+    BLE_CHANNEL_FREQUENCY_2436 = 15,
+    BLE_CHANNEL_FREQUENCY_2438 = 16,
+    BLE_CHANNEL_FREQUENCY_2440 = 17,
+    BLE_CHANNEL_FREQUENCY_2442 = 18,
+    BLE_CHANNEL_FREQUENCY_2444 = 19,
+    BLE_CHANNEL_FREQUENCY_2446 = 20,
+    BLE_CHANNEL_FREQUENCY_2448 = 21,
+    BLE_CHANNEL_FREQUENCY_2450 = 22,
+    BLE_CHANNEL_FREQUENCY_2452 = 23,
+    BLE_CHANNEL_FREQUENCY_2454 = 24,
+    BLE_CHANNEL_FREQUENCY_2456 = 25,
+    BLE_CHANNEL_FREQUENCY_2458 = 26,
+    BLE_CHANNEL_FREQUENCY_2460 = 27,
+    BLE_CHANNEL_FREQUENCY_2462 = 28,
+    BLE_CHANNEL_FREQUENCY_2464 = 29,
+    BLE_CHANNEL_FREQUENCY_2466 = 30,
+    BLE_CHANNEL_FREQUENCY_2468 = 31,
+    BLE_CHANNEL_FREQUENCY_2470 = 32,
+    BLE_CHANNEL_FREQUENCY_2472 = 33,
+    BLE_CHANNEL_FREQUENCY_2474 = 34,
+    BLE_CHANNEL_FREQUENCY_2476 = 35,
+    BLE_CHANNEL_FREQUENCY_2478 = 36,
+    BLE_CHANNEL_FREQUENCY_2480 = 39,
 
     BLE_FREQUENCY_TABLE_SIZE,
-    BLE_FREQUENCY_TABLE_ENTRY_DEFAULT = BLE_FREQUENCY_TABLE_ENTRY_2440
 } ble_frequency_table_entry_t;
 
 typedef struct isr_radio_param {
@@ -146,14 +145,13 @@ typedef struct isr_radio_param {
 
 typedef struct ble_cc13xx_cc26xx_rf_rx_data {
     dataQueue_t queue;
-	rfc_dataEntryPointer_t entry[RF_RX_ENTRY_BUFFER_SIZE];
-	uint8_t data[RF_RX_ENTRY_BUFFER_SIZE][RF_RX_BUFFER_SIZE] __aligned(4);
+	uint8_t buffer[RF_QUEUE_DATA_ENTRY_BUFFER_SIZE(RF_RX_ENTRY_BUFFER_SIZE, RF_RX_BUFFER_SIZE)] __attribute__ ((aligned (4)));
 } ble_cc13xx_cc26xx_rf_rx_data_t;
 
 typedef struct ble_cc13xx_cc26xx_rf_tx_data {
 	dataQueue_t queue;
-	rfc_dataEntryPointer_t entry[RF_TX_ENTRY_BUFFER_SIZE];
-	uint8_t data[RF_TX_ENTRY_BUFFER_SIZE][RF_TX_BUFFER_SIZE] __aligned(4);
+	rfc_dataEntryGeneral_t entry[RF_TX_ENTRY_BUFFER_SIZE];
+	uint8_t buffer[RF_QUEUE_DATA_ENTRY_BUFFER_SIZE(RF_TX_ENTRY_BUFFER_SIZE, RF_TX_BUFFER_SIZE)] __attribute__ ((aligned (4)));
 } ble_cc13xx_cc26xx_rf_tx_data_t;
 
 typedef struct ble_cc13xx_cc26xx_rf_rat {
@@ -192,11 +190,14 @@ typedef struct ble_cc13xx_cc26xx_rf {
 } ble_cc13xx_cc26xx_rf_t;
 
 typedef struct ble_cc13xx_cc26xx_data {
-	uint8_t device_address[6];
+
+    union {
+	    uint8_t device_address[6];
+	    uint16_t rf_address[3];
+    };
 	uint32_t access_address;
 	uint32_t polynomial;
 	uint32_t iv;
-	uint8_t whiten;
 	uint16_t channel;
 
     bool ignore_next_rx;
@@ -337,46 +338,46 @@ uint32_t pOverrides_bleCoded[] =
 };
 
 static const cc13xx_cc26xx_frequency_table_entry_t frequency_table[BLE_FREQUENCY_TABLE_SIZE] = {
-    [BLE_FREQUENCY_TABLE_ENTRY_2402] = {.frequency = 2402, .whitening = 0xE5}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2404] = {.frequency = 2404, .whitening = 0xC0}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2406] = {.frequency = 2406, .whitening = 0xC1}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2408] = {.frequency = 2408, .whitening = 0xC2},
-    [BLE_FREQUENCY_TABLE_ENTRY_2410] = {.frequency = 2410, .whitening = 0xC3}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2412] = {.frequency = 2412, .whitening = 0xC4}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2414] = {.frequency = 2414, .whitening = 0xC5}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2416] = {.frequency = 2416, .whitening = 0xC6},
-    [BLE_FREQUENCY_TABLE_ENTRY_2418] = {.frequency = 2418, .whitening = 0xC7}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2420] = {.frequency = 2420, .whitening = 0xC8}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2422] = {.frequency = 2422, .whitening = 0xC9}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2424] = {.frequency = 2424, .whitening = 0xCA},
-    [BLE_FREQUENCY_TABLE_ENTRY_2426] = {.frequency = 2426, .whitening = 0xE6}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2428] = {.frequency = 2428, .whitening = 0xCB}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2430] = {.frequency = 2430, .whitening = 0xCC}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2432] = {.frequency = 2432, .whitening = 0xCD},
-    [BLE_FREQUENCY_TABLE_ENTRY_2434] = {.frequency = 2434, .whitening = 0xCE}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2436] = {.frequency = 2436, .whitening = 0xCF}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2438] = {.frequency = 2438, .whitening = 0xD0}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2440] = {.frequency = 2440, .whitening = 0xD1},
-    [BLE_FREQUENCY_TABLE_ENTRY_2442] = {.frequency = 2442, .whitening = 0xD2}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2444] = {.frequency = 2444, .whitening = 0xD3}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2446] = {.frequency = 2446, .whitening = 0xD4}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2448] = {.frequency = 2448, .whitening = 0xD5},
-    [BLE_FREQUENCY_TABLE_ENTRY_2450] = {.frequency = 2450, .whitening = 0xD6}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2452] = {.frequency = 2452, .whitening = 0xD7}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2454] = {.frequency = 2454, .whitening = 0xD8}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2456] = {.frequency = 2456, .whitening = 0xD9},
-    [BLE_FREQUENCY_TABLE_ENTRY_2458] = {.frequency = 2458, .whitening = 0xDA}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2460] = {.frequency = 2460, .whitening = 0xDB}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2462] = {.frequency = 2462, .whitening = 0xDC}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2464] = {.frequency = 2464, .whitening = 0xDD},
-    [BLE_FREQUENCY_TABLE_ENTRY_2466] = {.frequency = 2466, .whitening = 0xDE}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2468] = {.frequency = 2468, .whitening = 0xDF}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2470] = {.frequency = 2470, .whitening = 0xE0}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2472] = {.frequency = 2472, .whitening = 0xE1},
-    [BLE_FREQUENCY_TABLE_ENTRY_2474] = {.frequency = 2474, .whitening = 0xE2}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2476] = {.frequency = 2476, .whitening = 0xE3}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2478] = {.frequency = 2478, .whitening = 0xE4}, 
-    [BLE_FREQUENCY_TABLE_ENTRY_2480] = {.frequency = 2480, .whitening = 0xE7}
+    [BLE_CHANNEL_FREQUENCY_2402] = {.frequency = 2402, .whitening = 0xE5}, 
+    [BLE_CHANNEL_FREQUENCY_2404] = {.frequency = 2404, .whitening = 0xC0}, 
+    [BLE_CHANNEL_FREQUENCY_2406] = {.frequency = 2406, .whitening = 0xC1}, 
+    [BLE_CHANNEL_FREQUENCY_2408] = {.frequency = 2408, .whitening = 0xC2},
+    [BLE_CHANNEL_FREQUENCY_2410] = {.frequency = 2410, .whitening = 0xC3}, 
+    [BLE_CHANNEL_FREQUENCY_2412] = {.frequency = 2412, .whitening = 0xC4}, 
+    [BLE_CHANNEL_FREQUENCY_2414] = {.frequency = 2414, .whitening = 0xC5}, 
+    [BLE_CHANNEL_FREQUENCY_2416] = {.frequency = 2416, .whitening = 0xC6},
+    [BLE_CHANNEL_FREQUENCY_2418] = {.frequency = 2418, .whitening = 0xC7}, 
+    [BLE_CHANNEL_FREQUENCY_2420] = {.frequency = 2420, .whitening = 0xC8}, 
+    [BLE_CHANNEL_FREQUENCY_2422] = {.frequency = 2422, .whitening = 0xC9}, 
+    [BLE_CHANNEL_FREQUENCY_2424] = {.frequency = 2424, .whitening = 0xCA},
+    [BLE_CHANNEL_FREQUENCY_2426] = {.frequency = 2426, .whitening = 0xE6}, 
+    [BLE_CHANNEL_FREQUENCY_2428] = {.frequency = 2428, .whitening = 0xCB}, 
+    [BLE_CHANNEL_FREQUENCY_2430] = {.frequency = 2430, .whitening = 0xCC}, 
+    [BLE_CHANNEL_FREQUENCY_2432] = {.frequency = 2432, .whitening = 0xCD},
+    [BLE_CHANNEL_FREQUENCY_2434] = {.frequency = 2434, .whitening = 0xCE}, 
+    [BLE_CHANNEL_FREQUENCY_2436] = {.frequency = 2436, .whitening = 0xCF}, 
+    [BLE_CHANNEL_FREQUENCY_2438] = {.frequency = 2438, .whitening = 0xD0}, 
+    [BLE_CHANNEL_FREQUENCY_2440] = {.frequency = 2440, .whitening = 0xD1},
+    [BLE_CHANNEL_FREQUENCY_2442] = {.frequency = 2442, .whitening = 0xD2}, 
+    [BLE_CHANNEL_FREQUENCY_2444] = {.frequency = 2444, .whitening = 0xD3}, 
+    [BLE_CHANNEL_FREQUENCY_2446] = {.frequency = 2446, .whitening = 0xD4}, 
+    [BLE_CHANNEL_FREQUENCY_2448] = {.frequency = 2448, .whitening = 0xD5},
+    [BLE_CHANNEL_FREQUENCY_2450] = {.frequency = 2450, .whitening = 0xD6}, 
+    [BLE_CHANNEL_FREQUENCY_2452] = {.frequency = 2452, .whitening = 0xD7}, 
+    [BLE_CHANNEL_FREQUENCY_2454] = {.frequency = 2454, .whitening = 0xD8}, 
+    [BLE_CHANNEL_FREQUENCY_2456] = {.frequency = 2456, .whitening = 0xD9},
+    [BLE_CHANNEL_FREQUENCY_2458] = {.frequency = 2458, .whitening = 0xDA}, 
+    [BLE_CHANNEL_FREQUENCY_2460] = {.frequency = 2460, .whitening = 0xDB}, 
+    [BLE_CHANNEL_FREQUENCY_2462] = {.frequency = 2462, .whitening = 0xDC}, 
+    [BLE_CHANNEL_FREQUENCY_2464] = {.frequency = 2464, .whitening = 0xDD},
+    [BLE_CHANNEL_FREQUENCY_2466] = {.frequency = 2466, .whitening = 0xDE}, 
+    [BLE_CHANNEL_FREQUENCY_2468] = {.frequency = 2468, .whitening = 0xDF}, 
+    [BLE_CHANNEL_FREQUENCY_2470] = {.frequency = 2470, .whitening = 0xE0}, 
+    [BLE_CHANNEL_FREQUENCY_2472] = {.frequency = 2472, .whitening = 0xE1},
+    [BLE_CHANNEL_FREQUENCY_2474] = {.frequency = 2474, .whitening = 0xE2}, 
+    [BLE_CHANNEL_FREQUENCY_2476] = {.frequency = 2476, .whitening = 0xE3}, 
+    [BLE_CHANNEL_FREQUENCY_2478] = {.frequency = 2478, .whitening = 0xE4}, 
+    [BLE_CHANNEL_FREQUENCY_2480] = {.frequency = 2480, .whitening = 0xE7}
 };
 
 static const RF_TxPowerTable_Entry RF_BLE_txPowerTable[TXPOWERTABLE_2400_PA5_SIZE] =
@@ -442,21 +443,19 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
 	.access_address          = 0xFFFFFFFF,
 	.polynomial              = 0,
 	.iv                      = 0,
-	.whiten                  = frequency_table[BLE_FREQUENCY_TABLE_ENTRY_DEFAULT].whitening,
-	.channel                 = DEFAULT_CHANNEL,
+	.channel                 = 0,
 
     .ignore_next_rx = false,
 	.ignore_next_tx = false,
 
     .rf.rx  = {
         .queue = {NULL},
-        .entry[0 ... (RF_RX_ENTRY_BUFFER_SIZE - 1)] = {0},
-        .data[0 ... (RF_RX_ENTRY_BUFFER_SIZE - 1)][0 ... (RF_RX_BUFFER_SIZE - 1)] = 0,
+        .buffer = {0}
     },
     .rf.tx  = {
         .queue = {NULL},
         .entry[0 ... (RF_TX_ENTRY_BUFFER_SIZE - 1)] = {0},
-        .data[0 ... (RF_TX_ENTRY_BUFFER_SIZE - 1)][0 ... (RF_TX_BUFFER_SIZE - 1)] = 0,
+        .buffer = {0}
     },
     .rf.rat = {
         .hcto_compare = {0},
@@ -474,7 +473,7 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
             .startTrigger.pastTrig    = 0,
             .condition.rule           = COND_NEVER,
             .condition.nSkip          = COND_ALWAYS,
-            .frequency                = frequency_table[BLE_FREQUENCY_TABLE_ENTRY_DEFAULT].frequency,
+            .frequency                = 0,
             .fractFreq                = 0,
             .synthConf.bTxMode        = 0,
             .synthConf.refFreq        = 0,
@@ -540,7 +539,7 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
             .startTrigger.pastTrig    = 0,
             .condition.rule           = COND_NEVER,
             .condition.nSkip          = COND_ALWAYS,
-            .channel                  = DEFAULT_CHANNEL,
+            .channel                  = 0,
             .whitening.init           = 0,
             .whitening.bOverride      = 0,
             .phyMode.mainMode         = 0,
@@ -570,9 +569,9 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
             .advConfig.rpaMode          = 0,
             .advLen                     = 0,
             .scanRspLen                 = 0,
-            .pAdvData                   = NULL,
-            .pScanRspData               = NULL,
-            .pDeviceAddress             = NULL,
+            .pAdvData                   = ble_cc13xx_cc26xx_data.adv_data,
+            .pScanRspData               = ble_cc13xx_cc26xx_data.scan_rsp_data,
+            .pDeviceAddress             = ble_cc13xx_cc26xx_data.rf_address,
             .pWhiteList                 = NULL,
             .behConfig.scanRspEndType   = 0,
             .__dummy0                   = 0,
@@ -604,7 +603,7 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
             .startTrigger.pastTrig    = 0,
             .condition.rule           = COND_NEVER,
             .condition.nSkip          = COND_ALWAYS,
-            .channel                  = DEFAULT_CHANNEL,
+            .channel                  = 0,
             .whitening.init           = 0,
             .whitening.bOverride      = 0,
             .phyMode.mainMode         = 0,
@@ -650,7 +649,7 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
             .startTrigger.pastTrig    = 0,
             .condition.rule           = COND_NEVER,
             .condition.nSkip          = COND_ALWAYS,
-            .channel                  = DEFAULT_CHANNEL,
+            .channel                  = 0,
             .whitening.init           = 0,
             .whitening.bOverride      = 0,
             .phyMode.mainMode         = 0,
@@ -894,59 +893,6 @@ static const char* const pdu_adv_type_to_string(enum pdu_adv_type pdu_adv_type)
     return "unknown";
 }
 
-static void dbg_pdu_adv_data(const struct pdu_adv *pdu_adv)
-{
-        switch (pdu_adv->type)
-        {
-            case PDU_ADV_TYPE_ADV_IND:
-                const struct pdu_adv_adv_ind* adv_ind = (const struct pdu_adv_adv_ind*)&pdu_adv->payload;
-                LOG_DBG("%02X:%02X:%02X:%02X:%02X:%02X",
-                        adv_ind->addr[5], adv_ind->addr[4], adv_ind->addr[3], 
-                        adv_ind->addr[2], adv_ind->addr[1], adv_ind->addr[0]);
-                LOG_HEXDUMP_DBG(adv_ind->data, sizeof(adv_ind->data), ">");
-                break;
-
-            case PDU_ADV_TYPE_DIRECT_IND:
-                const struct pdu_adv_direct_ind* direct_ind = (const struct pdu_adv_direct_ind*)&pdu_adv->payload;
-                    LOG_DBG("%02X:%02X:%02X:%02X:%02X:%02X -> %02X:%02X:%02X:%02X:%02X:%02X",
-                        direct_ind->adv_addr[5], direct_ind->adv_addr[4], direct_ind->adv_addr[3], 
-                        direct_ind->adv_addr[2], direct_ind->adv_addr[1], direct_ind->adv_addr[0],
-                        direct_ind->tgt_addr[5], direct_ind->tgt_addr[4], direct_ind->tgt_addr[3], 
-                        direct_ind->tgt_addr[2], direct_ind->tgt_addr[1], direct_ind->tgt_addr[0]);
-                
-                break;
-
-            case PDU_ADV_TYPE_SCAN_REQ:
-                const struct pdu_adv_scan_req* scan_req = (const struct pdu_adv_scan_req*)&pdu_adv->payload;
-                LOG_DBG("%02X:%02X:%02X:%02X:%02X:%02X -> %02X:%02X:%02X:%02X:%02X:%02X",
-                        scan_req->adv_addr[5], scan_req->adv_addr[4], scan_req->adv_addr[3], 
-                        scan_req->adv_addr[2], scan_req->adv_addr[1], scan_req->adv_addr[0],
-                        scan_req->scan_addr[5], scan_req->scan_addr[4], scan_req->scan_addr[3], 
-                        scan_req->scan_addr[2], scan_req->scan_addr[1], scan_req->scan_addr[0]);
-                break;
-
-            case PDU_ADV_TYPE_SCAN_RSP:
-                const struct pdu_adv_scan_rsp* scan_rsp = (const struct pdu_adv_scan_rsp*)&pdu_adv->payload;
-                LOG_DBG("%02X:%02X:%02X:%02X:%02X:%02X",
-                        scan_rsp->addr[3], scan_rsp->addr[4], scan_rsp->addr[5], 
-                        scan_rsp->addr[0], scan_rsp->addr[1], scan_rsp->addr[2]);
-                LOG_HEXDUMP_DBG(scan_rsp->data, sizeof(scan_rsp->data), ">");
-                
-                break;
-
-            case PDU_ADV_TYPE_CONNECT_IND:
-                // const struct pdu_adv_connect_ind* connect_ind = (const struct pdu_adv_connect_ind*)&pdu_adv->payload;
-                break;
-
-            case PDU_ADV_TYPE_EXT_IND:
-                // const struct pdu_adv_com_ext_adv* adv_ext_ind = (const struct pdu_adv_com_ext_adv*)&pdu_adv->payload;                
-                break;
-
-            default: break;
-
-        }
-}
-
 static const char* const pdu_data_type_to_string(const struct pdu_data* pdu_data)
 {
     switch (pdu_data->ll_id) {
@@ -1076,16 +1022,16 @@ static RF_Op* get_rf_cmd(RF_CmdHandle commandNo)
 static void pkt_rx(const struct isr_radio_param *isr_radio_param)
 {
 	bool once = false;
-	rfc_dataEntryPointer_t *it;
+	rfc_dataEntryGeneral_t *it;
 
 	crc_valid = false;
 
 	for (size_t i = 0; i < RF_RX_ENTRY_BUFFER_SIZE; it->status = DATA_ENTRY_PENDING, ++i) {
-		it = &driver_data->rf.rx.entry[i];
+		it = RFQueue_getDataEntry();
 
 		if ((it->status == DATA_ENTRY_FINISHED) && (!once)) {
-            size_t offs = it->pData[0];
-            uint8_t *data = &it->pData[1];
+            size_t offs = it->length;
+            uint8_t *data = &driver_data->rf.rx.buffer[it->data];
 
             if (pdu_is_adv(driver_data->access_address)) {
                 struct pdu_adv *pdu_rx = (struct pdu_adv *)data;
@@ -1176,23 +1122,6 @@ static void pkt_rx(const struct isr_radio_param *isr_radio_param)
 	}
 }
 
-static void update_adv_data(uint8_t *data, uint8_t len, bool scan_rsp)
-{
-	driver_data->rf.cmd.ble_adv_payload.payloadType = scan_rsp;
-
-	if (NULL == data || 0 == len) {
-		len = 0;
-	}
-
-	driver_data->rf.cmd.ble_adv_payload.newLen =
-		MIN(len, scan_rsp ? sizeof(driver_data->scan_rsp_data) 
-                          : sizeof(driver_data->adv_data));
-
-	driver_data->rf.cmd.ble_adv_payload.pNewData = data;
-
-	RFCDoorbellSendTo((uint32_t)&driver_data->rf.cmd.ble_adv_payload);
-}
-
 static void rf_callback(RF_Handle h, RF_CmdHandle ch, RF_EventMask e)
 {
 	radio_param.h = h;
@@ -1211,9 +1140,9 @@ void isr_radio(void)
 	RF_Op *rf_op = RF_getCmdOp(rfBleHandle, isr_radio_param->ch);
 
     LOG_DBG("%s (0x%04X) %s (0x%04X) event %llu", 
-            commandNo_to_string(rf_op->commandNo), rf_op->commandNo,
-            ble_status_to_string(rf_op->status), rf_op->status, isr_radio_param->e);
-    dbg_event(isr_radio_param->e);
+        commandNo_to_string(rf_op->commandNo), rf_op->commandNo,
+        ble_status_to_string(rf_op->status), rf_op->status, isr_radio_param->e);
+        dbg_event(isr_radio_param->e);
 
     if(isr_radio_param->e & RF_EventTxDone) {
         if (timer_end_save) {
@@ -1242,28 +1171,9 @@ void isr_radio(void)
 	if (isr_radio_param->e & RF_EVENT_CMD_END_MASK) {
 		/* Disable both comparators */
 		RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
-
-        RF_Op* next_radio_cmd = get_rf_cmd(next_radio_commandNo);
-        if ((radio_trx > 0) && (next_radio_cmd != NULL)) {
-            LOG_DBG("next %s (%u)", commandNo_to_string(next_radio_commandNo), next_radio_commandNo);
-
-            /* Start Rx/Tx in TIFS */
-            next_radio_cmd->startTrigger.triggerType = TRIG_ABSTIME;
-            next_radio_cmd->startTrigger.pastTrig = true;
-            next_radio_cmd->startTime = cntr_cnt_get();
-
-            driver_data->rf.cmd.active_handle = RF_postCmd(rfBleHandle, next_radio_cmd, 
-                                                        RF_PriorityNormal, rf_callback, RF_EVENT_MASK);
-            next_radio_commandNo = 0;
-        }
-        else if(rf_op->commandNo != CMD_NOP) {
-            /* generate interrupt to get into isr_radio */
-            RF_postCmd(rfBleHandle, (RF_Op*)&driver_data->rf.cmd.nop, 
-                    RF_PriorityNormal, rf_callback, RF_EventLastCmdDone);
-        }
 	}
 
-	isr_cb(isr_cb_param);
+    isr_cb(isr_cb_param);
 
 	DEBUG_RADIO_ISR(0);
 }
@@ -1281,10 +1191,9 @@ void radio_isr_set(radio_isr_cb_t cb, void *param)
 	irq_enable(LL_RADIO_IRQn);
 }
 
-static void rat_deferred_hcto_callback(RF_Handle h, RF_RatHandle rh,
-				       RF_EventMask e, uint32_t compareCaptureTime)
+static void rat_deferred_hcto_callback(RF_Handle h, RF_RatHandle rh, RF_EventMask e, uint32_t compareCaptureTime)
 {
-	LOG_DBG("cntr %u (%u)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get())); 
+	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get())); 
 	RF_cancelCmd(rfBleHandle, driver_data->rf.cmd.active_handle, RF_ABORT_GRACEFULLY);
 	driver_data->rf.cmd.active_handle = -1;
 }
@@ -1307,53 +1216,12 @@ static void ble_cc13xx_cc26xx_data_init(void)
 	/* Ensure that this address is marked as _random_ */
 	driver_data->rf.cmd._ble_adv_param.advConfig.deviceAddrType = 1;
 
-	/* Setup circular RX queue (TRM 25.3.2.7) */
-	memset(&driver_data->rf.rx.entry[0], 0, sizeof(driver_data->rf.rx.entry[0]));
-	memset(&driver_data->rf.rx.entry[1], 0, sizeof(driver_data->rf.rx.entry[1]));
+    RFQueue_defineQueue(&driver_data->rf.rx.queue, driver_data->rf.rx.buffer, 
+                        sizeof(driver_data->rf.rx.buffer), RF_RX_ENTRY_BUFFER_SIZE, RF_RX_BUFFER_SIZE);
+    RFQueue_defineQueue(&driver_data->rf.tx.queue, driver_data->rf.tx.buffer, 
+                        sizeof(driver_data->rf.tx.buffer), RF_TX_ENTRY_BUFFER_SIZE, RF_TX_BUFFER_SIZE);
 
-	driver_data->rf.rx.entry[0].pNextEntry = (uint8_t *)&driver_data->rf.rx.entry[1];
-	driver_data->rf.rx.entry[0].config.type = DATA_ENTRY_TYPE_PTR;
-	driver_data->rf.rx.entry[0].config.lenSz = 1;
-	driver_data->rf.rx.entry[0].status = DATA_ENTRY_PENDING;
-	driver_data->rf.rx.entry[0].length = sizeof(driver_data->rf.rx.data[0]);
-	driver_data->rf.rx.entry[0].pData = driver_data->rf.rx.data[0];
-
-	driver_data->rf.rx.entry[1].pNextEntry = (uint8_t *)&driver_data->rf.rx.entry[0];
-	driver_data->rf.rx.entry[1].config.type = DATA_ENTRY_TYPE_PTR;
-	driver_data->rf.rx.entry[1].config.lenSz = 1;
-	driver_data->rf.rx.entry[0].status = DATA_ENTRY_PENDING;
-	driver_data->rf.rx.entry[1].length = sizeof(driver_data->rf.rx.data[1]);
-	driver_data->rf.rx.entry[1].pData = driver_data->rf.rx.data[1];
-
-	driver_data->rf.tx.queue.pCurrEntry = (uint8_t *)&driver_data->rf.rx.entry[0];
-	driver_data->rf.tx.queue.pLastEntry = NULL;
-
-	/* Setup circular TX queue (TRM 25.3.2.7) */
-	memset(&driver_data->rf.tx.entry[0], 0, sizeof(driver_data->rf.tx.entry[0]));
-	memset(&driver_data->rf.tx.entry[1], 0, sizeof(driver_data->rf.tx.entry[1]));
-
-	driver_data->rf.tx.entry[0].pNextEntry = (uint8_t *)&driver_data->rf.tx.entry[1];
-	driver_data->rf.tx.entry[0].config.type = DATA_ENTRY_TYPE_PTR;
-	driver_data->rf.tx.entry[0].config.lenSz = 0;
-	driver_data->rf.tx.entry[0].config.irqIntv = 0;
-	driver_data->rf.tx.entry[0].status = DATA_ENTRY_FINISHED;
-	driver_data->rf.tx.entry[0].length = 0;
-	driver_data->rf.tx.entry[0].pData = driver_data->rf.tx.data[0];
-
-	driver_data->rf.tx.entry[1].pNextEntry = (uint8_t *)&driver_data->rf.tx.entry[0];
-	driver_data->rf.tx.entry[1].config.type = DATA_ENTRY_TYPE_PTR;
-	driver_data->rf.tx.entry[1].config.lenSz = 1;
-	driver_data->rf.tx.entry[0].status = DATA_ENTRY_FINISHED;
-	driver_data->rf.tx.entry[1].length = sizeof(driver_data->rf.tx.data[1]);
-	driver_data->rf.tx.entry[1].pData = driver_data->rf.tx.data[1];
-
-	driver_data->rf.tx.queue.pCurrEntry = (uint8_t *)&driver_data->rf.tx.entry[0];
-	driver_data->rf.tx.queue.pLastEntry = NULL;
-
-	driver_data->rf.cmd.active_handle = -1;
-
-	RF_RatConfigCompare_init(
-		(RF_RatConfigCompare *)&driver_data->rf.rat.hcto_compare);
+	RF_RatConfigCompare_init((RF_RatConfigCompare*)&driver_data->rf.rat.hcto_compare);
 	driver_data->rf.rat.hcto_compare.callback = rat_deferred_hcto_callback;
 }
 
@@ -1385,10 +1253,6 @@ static void get_isr_latency(void)
 
 	radio_disable();
 
-    /* generate interrupt to get into isr_radio */
-	RF_postCmd(rfBleHandle, (RF_Op*)&driver_data->rf.cmd.nop, 
-               RF_PriorityNormal, rf_callback, RF_EventLastCmdDone);
-
 	while (tmp != ISR_LATENCY_MAGIC) {
 	}
 
@@ -1407,6 +1271,7 @@ void radio_setup(void)
                           &rfBleParams);
 	LL_ASSERT(rfBleHandle);
 
+    driver_data->rf.cmd.fs.frequency = frequency_table[ble_cc13xx_cc26xx_data.channel].frequency;
 	RF_runCmd(rfBleHandle, (RF_Op*)&driver_data->rf.cmd.fs, 
               RF_PriorityNormal, NULL, RF_EventLastCmdDone);
 
@@ -1451,67 +1316,26 @@ void radio_phy_set(uint8_t phy, uint8_t flags)
 
 void radio_tx_power_set(int8_t power)
 {
-	RF_setTxPower(rfBleHandle,
-		      RF_TxPowerTable_findValue(
-			      (RF_TxPowerTable_Entry *)RF_BLE_txPowerTable,
-			      power));
+    LOG_DBG("%u", power);
+	RF_setTxPower(rfBleHandle, RF_TxPowerTable_findValue((RF_TxPowerTable_Entry*)RF_BLE_txPowerTable, power));
 }
 
 void radio_tx_power_max_set(void)
 {
-	RF_setTxPower(rfBleHandle,
-		      RF_TxPowerTable_findValue(
-			      (RF_TxPowerTable_Entry *)RF_BLE_txPowerTable,
-			      RF_TxPowerTable_MAX_DBM));
+    radio_tx_power_set(RF_TxPowerTable_MAX_DBM);
 }
 
 void radio_freq_chan_set(uint32_t chan)
 {
-	/*
-	 * The LLL expects the channel number to be computed as
-	 * 2400 + chan [MHz]. Therefore a compensation of -2 MHz
-	 * has been provided.
-	 */
-	LL_ASSERT(2 <= chan && chan <= 80);
-	LL_ASSERT(!(chan & 0x1));
-
-	uint8_t index = chan - 2;
-	driver_data->whiten = frequency_table[index].whitening;
-
-	switch (chan) {
-	case 2:
-		driver_data->channel = 37;
-		break;
-	case 4 ... 24:
-		driver_data->channel = (chan - 4) / 2;
-		break;
-	case 26:
-		driver_data->channel = 38;
-		break;
-	case 28 ... 78:
-		driver_data->channel = (chan - 6) / 2;
-		break;
-	case 80:
-		driver_data->channel = 39;
-		break;
-	}
+    LOG_DBG("%u", chan);
+    LL_ASSERT(chan < BLE_FREQUENCY_TABLE_SIZE);
+    
+    driver_data->channel = chan;  
 }
 
 void radio_whiten_iv_set(uint32_t iv)
 {
-	/*
-	 * The LLL expects the channel number to be computed as
-	 * 2400 + ch_num [MHz]. Therefore a compensation of
-	 * -2 MHz has been provided.
-	 */
-
-/*
-	LL_ASSERT(2 <= iv && iv <= 80);
-
-	uint8_t index = iv - 2;
-
-	driver_data->whiten = frequency_table[index].whitening;
-*/
+    /* do nothing */
 }
 
 void radio_aa_set(const uint8_t *aa)
@@ -1527,7 +1351,7 @@ void radio_pkt_configure(uint8_t bits_len, uint8_t max_len, uint8_t flags)
 void radio_pkt_rx_set(void *rx_packet)
 {
 	if (driver_data->ignore_next_rx) {
-		LOG_DBG("ignore_next_rx");
+		LOG_DBG("ignore");
 	}
 	rx_packet_ptr = rx_packet;
 }
@@ -1548,22 +1372,15 @@ void radio_pkt_tx_set(void *tx_packet)
 	if (pdu_is_adv(driver_data->access_address)) {
         const struct pdu_adv* pdu_adv = (const struct pdu_adv*)tx_packet;
 
-        LOG_DBG("PDU_ADV_%s (0x%04X) cntr %u (%u)", pdu_adv_type_to_string(pdu_adv->type), pdu_adv->type, cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
-        // dbg_pdu_adv_data(pdu_adv);
+        LOG_DBG("PDU_ADV_%s (0x%04X) cntr %u (%uus)", pdu_adv_type_to_string(pdu_adv->type), pdu_adv->type, cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
 
         switch (pdu_adv->type) {
            case PDU_ADV_TYPE_ADV_IND:
-           case PDU_ADV_TYPE_NONCONN_IND:
-           case PDU_ADV_TYPE_SCAN_IND:
-                update_adv_data((uint8_t*)pdu_adv->adv_ind.data, (pdu_adv->len - sizeof(pdu_adv->adv_ind.addr)), false);
-                break;
-           
-            default: break;
-        }
+                driver_data->adv_data_len = (pdu_adv->len > sizeof(driver_data->adv_data)) ? sizeof(driver_data->adv_data) : pdu_adv->len;
+                memcpy(&driver_data->adv_data[0], &pdu_adv->adv_ind.data[0], driver_data->adv_data_len);
+                driver_data->rf.cmd.ble5_adv.pParams->advLen = driver_data->adv_data_len;
 
-        switch (pdu_adv->type) {
-           case PDU_ADV_TYPE_ADV_IND:
-                tx_commandNo = CMD_BLE5_ADV;
+                tx_commandNo = driver_data->rf.cmd.ble5_adv.commandNo;
                 break;
 
             case PDU_ADV_TYPE_SCAN_RSP:
@@ -1574,12 +1391,12 @@ void radio_pkt_tx_set(void *tx_packet)
         }
 	} else { /* PDU is data */
 		const struct pdu_data* pdu_data = (const struct pdu_data*)tx_packet;
-        LOG_DBG("PDU_DATA_LL%s (0x%04X) cntr %u (%u)", pdu_data_type_to_string(pdu_data), pdu_data->ll_id, cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
+        LOG_DBG("PDU_DATA_LL%s (0x%04X) cntr %u (%uus)", pdu_data_type_to_string(pdu_data), pdu_data->ll_id, cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
 
 		switch (pdu_data->ll_id) {
 		    case PDU_DATA_LLID_DATA_CONTINUE:
                 driver_data->rf.tx.entry[0].length = MIN((PDU_DC_LL_HEADER_SIZE + pdu_data->len) ,RF_TX_BUFFER_SIZE);
-                memcpy(&driver_data->rf.tx.data[0], pdu_data, driver_data->rf.tx.entry[0].length);
+                memcpy(&driver_data->rf.tx.buffer[0], pdu_data, driver_data->rf.tx.entry[0].length);
                 driver_data->rf.tx.entry[0].status = DATA_ENTRY_PENDING;
                 break;
 
@@ -1646,14 +1463,14 @@ void radio_tx_enable(void)
 
 void radio_disable(void)
 {
-    LOG_DBG("cntr %u (%u)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
-	/* 0b1011..Abort All - Cancels all pending events and abort any
-	 * sequence-in-progress
-	 */
-	RFCDoorbellSendTo(CMDR_DIR_CMD(CMD_ABORT));
+    LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
 
-	/* Set all RX entries to empty */
-	RFCDoorbellSendTo((uint32_t)&driver_data->rf.cmd.clear_rx);
+    RF_runDirectCmd(rfBleHandle, CMD_ABORT);
+    RF_runImmediateCmd(rfBleHandle, (uint32_t*)&driver_data->rf.cmd.clear_rx);
+
+    /* generate interrupt to get into isr_radio */
+	RF_postCmd(rfBleHandle, (RF_Op*)&driver_data->rf.cmd.nop, 
+               RF_PriorityNormal, rf_callback, RF_EventLastCmdDone);
 
 	next_radio_commandNo = 0;
 }
@@ -1751,8 +1568,7 @@ void radio_switch_complete_and_rx(uint8_t phy_rx)
 	next_warmup = rx_warmup + RX_MARGIN;
 }
 
-void radio_switch_complete_and_tx(uint8_t phy_rx, uint8_t flags_rx,
-				  uint8_t phy_tx, uint8_t flags_tx)
+void radio_switch_complete_and_tx(uint8_t phy_rx, uint8_t flags_rx, uint8_t phy_tx, uint8_t flags_tx)
 {
 	/*  0b0010..TX Start @ T1 Timer Compare Match (EVENT_TMR = T1_CMP) */
 	if (driver_data->ignore_next_tx) {
@@ -1771,7 +1587,7 @@ void radio_switch_complete_and_disable(void)
 
 void radio_rssi_measure(void)
 {
-	rssi = RF_GET_RSSI_ERROR_VAL;
+	rssi = RF_getRssi(rfBleHandle);
 
 }
 
@@ -1790,8 +1606,7 @@ uint32_t radio_rssi_is_ready(void)
     return (rssi != RF_GET_RSSI_ERROR_VAL);
 }
 
-void radio_filter_configure(uint8_t bitmask_enable, uint8_t bitmask_addr_type,
-			    uint8_t *bdaddr)
+void radio_filter_configure(uint8_t bitmask_enable, uint8_t bitmask_addr_type, uint8_t *bdaddr)
 {
 
 }
@@ -2018,8 +1833,7 @@ void radio_tmr_hcto_configure(uint32_t hcto)
 	driver_data->rf.rat.hcto_compare.timeout = hcto;
 
 	/* 0b1001..RX Stop @ T2 Timer Compare Match (EVENT_TMR = T2_CMP) */
-	driver_data->rf.rat.hcto_handle =
-		RF_ratCompare(rfBleHandle, &driver_data->rf.rat.hcto_compare, NULL);
+	driver_data->rf.rat.hcto_handle = RF_ratCompare(rfBleHandle, &driver_data->rf.rat.hcto_compare, NULL);
 }
 
 void radio_tmr_aa_capture(void)
