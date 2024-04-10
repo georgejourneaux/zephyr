@@ -60,7 +60,6 @@ LOG_MODULE_REGISTER(bt_ti_radio);
  */
 #define DF_S0_MASK_CP_BIT_IN_DATA_CHANNEL_PDU (0x20)
 
-/* Modifying these values could open a portal to The Upside-down */
 #define RF_RX_CONFIG_AUTO_FLUSH_IGNORED (1)
 #define RF_RX_CONFIG_AUTO_FLUSH_CRC_ERR (1)
 #define RF_RX_CONFIG_AUTO_FLUSH_EMPTY   (0)
@@ -70,10 +69,10 @@ LOG_MODULE_REGISTER(bt_ti_radio);
 #define RF_RX_CONFIG_APPEND_STATUS      (0)
 #define RF_RX_CONFIG_APPEND_TIMESTAMP   (1)
 
-#define RF_ADDITIONAL_DATA_BYTES (RF_RX_CONFIG_INCLUDE_LEN_BYTE \
-                                  + RF_RX_CONFIG_INCLUDE_CRC \
-	                              + RF_RX_CONFIG_APPEND_RSSI \
-                                  + RF_RX_CONFIG_APPEND_STATUS \
+#define RF_ADDITIONAL_DATA_BYTES (RF_RX_CONFIG_INCLUDE_LEN_BYTE\
+                                  + RF_RX_CONFIG_INCLUDE_CRC\
+	                              + RF_RX_CONFIG_APPEND_RSSI\
+                                  + RF_RX_CONFIG_APPEND_STATUS\
                                   + RF_RX_CONFIG_APPEND_TIMESTAMP)
                                   
 #define RF_RX_ENTRY_BUFFER_SIZE  (2)
@@ -82,8 +81,35 @@ LOG_MODULE_REGISTER(bt_ti_radio);
 #define RF_TX_ENTRY_BUFFER_SIZE  (2)
 #define RF_TX_BUFFER_SIZE HAL_RADIO_PDU_LEN_MAX
 
-#define RF_EVENT_MASK (RF_EventLastCmdDone | RF_EventTxDone | RF_EventRxEntryDone | RF_EventRxEmpty | RF_EventRxOk | RF_EventRxNOk)
-#define RF_EVENT_CMD_END_MASK (RF_EventLastCmdDone | RF_EventLastFGCmdDone | RF_EventCmdCancelled | RF_EventCmdAborted | RF_EventCmdStopped)
+#define RF_EVENT_CMD_DONE_MASK (RF_EventCmdDone\
+                               | RF_EventLastCmdDone\
+                               | RF_EventCmdCancelled\
+                               | RF_EventCmdAborted\
+                               | RF_EventCmdStopped)
+
+#define RF_EVENT_TX_DONE_MASK (RF_EventTxDone\
+                               | RF_EventTXAck\
+                               | RF_EventTxCtrl\
+                               | RF_EventTxCtrlAck\
+                               | RF_EventTxCtrlAckAck\
+                               | RF_EventTxRetrans\
+                               | RF_EventTxEntryDone\
+                               | RF_EventTxBufferChange)
+
+#define RF_EVENT_RX_DONE_MASK (RF_EventRxOk\
+                               | RF_EventRxNOk\
+                               | RF_EventRxIgnored\
+                               | RF_EventRxEmpty\
+                               | RF_EventRxCtrl\
+                               | RF_EventRxCtrlAck\
+                               | RF_EventRxBufFull\
+                               | RF_EventRxEntryDone\
+                               | RF_EventRxAborted\
+                               | RF_EventRxCollisionDetected)
+
+#define RF_EVENT_ISR_MASK (RF_EVENT_CMD_DONE_MASK\
+                           | RF_EVENT_TX_DONE_MASK\
+                           | RF_EVENT_RX_DONE_MASK)
 
 #define TXPOWERTABLE_2400_PA5_SIZE (16) // 2400 MHz, 5 dBm
 
@@ -218,12 +244,6 @@ typedef struct ble_cc13xx_cc26xx_data {
 	uint8_t scan_rsp_data[sizeof((struct pdu_adv_scan_rsp *)0)->data];
 #endif
 	uint8_t scan_rsp_data_len;
-
-#if defined(CONFIG_BT_CTLR_DEBUG_PINS)
-	uint32_t window_begin_ticks;
-	uint32_t window_duration_ticks;
-	uint32_t window_interval_ticks;
-#endif /* defined(CONFIG_BT_CTLR_DEBUG_PINS) */
 } ble_cc13xx_cc26xx_data_t;
 
 typedef struct cc13xx_cc26xx_frequency_table_entry {
@@ -714,12 +734,6 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
 	.scan_rsp_data[0 ... (sizeof(((struct pdu_adv_scan_rsp *)0)->data) - 1)] = 0,
 #endif
 	.scan_rsp_data_len = 0,
-
-#if defined(CONFIG_BT_CTLR_DEBUG_PINS)
-	.window_begin_ticks = 0,
-	.window_duration_ticks = 0,
-	.window_interval_ticks = 0,
-#endif /* defined(CONFIG_BT_CTLR_DEBUG_PINS) */
 };
 static ble_cc13xx_cc26xx_data_t* driver_data = &ble_cc13xx_cc26xx_data;
 
@@ -938,63 +952,6 @@ static const char* const pdu_data_type_to_string(const struct pdu_data* pdu_data
     return "unknown";
 }
 
-#if defined(CONFIG_BT_CTLR_DEBUG_PINS)
-static void transmit_window_callback(RF_Handle h, RF_RatHandle rh, RF_EventMask e, uint32_t compareCaptureTime) {
-	uint32_t now = RF_getCurrentTime();
-
-	uint32_t begin = driver_data->window_begin_ticks;
-	uint32_t duration = driver_data->window_duration_ticks;
-	uint32_t interval = driver_data->window_interval_ticks;
-
-	if ( now >= begin + duration ) {
-
-		/* reschedule the next transmit window after 1 interval */
-		transmit_window_debug( begin + interval, duration, interval );
-
-	} else if ( now >= begin ) {
-
-		RF_RatConfigCompare channelConfig = {
-			.callback = transmit_window_callback,
-			.channel = RF_RatChannel1,
-			.timeout = begin + duration,
-		};
-		RF_RatConfigOutput ioConfig = {
-			.mode = RF_RatOutputModeClear,
-			.select = RF_RatOutputSelectRatGpo2,
-		};
-		RF_ratCompare(rfBleHandle, &channelConfig, &ioConfig);
-
-	}
-}
-
-static void transmit_window_debug(uint32_t begin, uint32_t duration, uint32_t interval) {
-
-	BT_DBG( "TX Window: [%u,%u] ticks ([%u,%u] us) every %u ticks (%u us)",
-		begin,
-		begin + duration,
-		HAL_TICKER_TICKS_TO_US(begin),
-		HAL_TICKER_TICKS_TO_US(begin + duration),
-		interval,
-		HAL_TICKER_TICKS_TO_US(interval)
-	);
-
-	driver_data->window_begin_ticks = begin;
-	driver_data->window_duration_ticks = duration;
-	driver_data->window_interval_ticks = interval;
-
-	RF_RatConfigCompare channelConfig = {
-		.callback = transmit_window_callback,
-		.channel = RF_RatChannel1,
-		.timeout = begin,
-	};
-	RF_RatConfigOutput ioConfig = {
-		.mode = RF_RatOutputModeSet,
-		.select = RF_RatOutputSelectRatGpo2,
-	};
-	RF_ratCompare(rfBleHandle, &channelConfig, &ioConfig);
-}
-#endif /* defined(CONFIG_BT_CTLR_DEBUG_PINS) */
-
 static bool pdu_is_adv(uint32_t access_address)
 {
     return (access_address == PDU_AC_ACCESS_ADDR);
@@ -1019,17 +976,29 @@ static RF_Op* get_rf_cmd(RF_CmdHandle commandNo)
 	return NULL;
 }
 
-static void pkt_rx(const struct isr_radio_param *isr_radio_param)
+static void isr_tx(const struct isr_radio_param *isr_radio_param)
 {
-	bool once = false;
-	rfc_dataEntryGeneral_t *it;
+    if (timer_end_save) {
+        timer_end = isr_timer_end;
+    }
+    radio_trx = 1;
+}
 
+static void isr_rx(const struct isr_radio_param *isr_radio_param)
+{
+	rfc_dataEntryGeneral_t *it;
 	crc_valid = false;
 
-	for (size_t i = 0; i < RF_RX_ENTRY_BUFFER_SIZE; it->status = DATA_ENTRY_PENDING, ++i) {
+    /* Disable Rx timeout */
+    /* 0b1010..RX Cancel -- Cancels pending RX events but do not
+        *			abort a RX-in-progress
+        */
+    RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
+
+	for (uint8_t entry_index = 0; entry_index < RF_RX_ENTRY_BUFFER_SIZE; it->status = DATA_ENTRY_PENDING, entry_index++) {
 		it = RFQueue_getDataEntry();
 
-		if ((it->status == DATA_ENTRY_FINISHED) && (!once)) {
+		if ((it->status == DATA_ENTRY_FINISHED) && (entry_index == 0)) {
             size_t offs = it->length;
             uint8_t *data = &driver_data->rf.rx.buffer[it->data];
 
@@ -1067,19 +1036,6 @@ static void pkt_rx(const struct isr_radio_param *isr_radio_param)
                     uint32_t now = cntr_cnt_get();
                     LOG_DBG( "CONNECT_IND: now: %u timestamp: %u (%u us)",
                         now, timestamp, HAL_TICKER_TICKS_TO_US(timestamp));
-
-#if defined(CONFIG_BT_CTLR_DEBUG_PINS)
-                    // 1.25 ms, constant value in the case of CONNECT_IND
-                    const uint32_t transmitWindowDelay = HAL_TICKER_US_TO_TICKS( 1250 );
-                    const uint32_t transmitWindowOffset = HAL_TICKER_US_TO_TICKS( pdu_rx->connect_ind.win_offset * 1250 );
-                    const uint32_t transmitWindowSize = HAL_TICKER_US_TO_TICKS( pdu_rx->connect_ind.win_size * 1250 );
-                    
-                    uint32_t transmitWindowStart = (isr_timer_end + transmitWindowDelay + transmitWindowOffset);
-                    uint32_t transmitWindowEnd = (transmitWindowStart + transmitWindowSize);
-
-                    transmit_window_debug( transmitWindowStart, (transmitWindowEnd - transmitWindowStart),
-                        HAL_TICKER_US_TO_TICKS( pdu_rx->connect_ind.interval * 1250 ));
-#endif /* defined(CONFIG_BT_CTLR_DEBUG_PINS) */
                 }
             } else {
                 // data pdu
@@ -1117,9 +1073,16 @@ static void pkt_rx(const struct isr_radio_param *isr_radio_param)
             memcpy(rx_packet_ptr, data, MIN(len, payload_max_size));
 
             radio_trx = 1;
-            once = true;
 		}
 	}
+
+    if (timer_aa_save) {
+        timer_aa = isr_timer_aa;
+    }
+
+    if (timer_end_save) {
+        timer_end = isr_timer_end; /* from pkt_rx() */
+    }
 }
 
 static void rf_callback(RF_Handle h, RF_CmdHandle ch, RF_EventMask e)
@@ -1135,45 +1098,34 @@ void isr_radio(void)
 {
 	DEBUG_RADIO_ISR(1);
 
+    bool isr_done = false;
     const isr_radio_param_t *const isr_radio_param = &radio_param;
 
 	RF_Op *rf_op = RF_getCmdOp(rfBleHandle, isr_radio_param->ch);
-
     LOG_DBG("%s (0x%04X) %s (0x%04X) event %llu", 
         commandNo_to_string(rf_op->commandNo), rf_op->commandNo,
         ble_status_to_string(rf_op->status), rf_op->status, isr_radio_param->e);
         dbg_event(isr_radio_param->e);
 
-    if(isr_radio_param->e & RF_EventTxDone) {
-        if (timer_end_save) {
-			timer_end = isr_timer_end;
-		}
-		radio_trx = 1;
+    if(isr_radio_param->e & RF_EVENT_TX_DONE_MASK) {
+        isr_tx(isr_radio_param);
+        isr_done = true;
     }
 
-	if (isr_radio_param->e & (RF_EventRxOk | RF_EventRxEmpty | RF_EventRxEntryDone)) {
-		/* Disable Rx timeout */
-		/* 0b1010..RX Cancel -- Cancels pending RX events but do not
-		 *			abort a RX-in-progress
-		 */
-		RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
-
-		/* Copy the PDU as it arrives, calculates Rx end */
-		pkt_rx(isr_radio_param);
-		if (timer_aa_save) {
-			timer_aa = isr_timer_aa;
-		}
-		if (timer_end_save) {
-			timer_end = isr_timer_end; /* from pkt_rx() */
-		}
+	if (isr_radio_param->e & RF_EVENT_RX_DONE_MASK) {
+		isr_rx(isr_radio_param);
+        isr_done = true;
 	}
 
-	if (isr_radio_param->e & RF_EVENT_CMD_END_MASK) {
+	if (isr_radio_param->e & RF_EVENT_CMD_DONE_MASK) {
 		/* Disable both comparators */
 		RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
+        isr_done = true;
 	}
 
-    isr_cb(isr_cb_param);
+    if(isr_done == true) {
+        isr_cb(isr_cb_param);
+    }
 
 	DEBUG_RADIO_ISR(0);
 }
@@ -1454,7 +1406,7 @@ void radio_rx_enable(void)
 
 void radio_tx_enable(void)
 {
-	if (!driver_data->ignore_next_tx) {
+	if (driver_data->ignore_next_tx == false) {
 		LL_ASSERT(next_tx_radio_commandNo != 0);
 		next_radio_commandNo = next_tx_radio_commandNo;
 		radio_tmr_start_now(true);
@@ -1776,7 +1728,7 @@ static uint32_t radio_tmr_start_hlp(uint8_t trx, uint32_t ticks_start, uint32_t 
             (startTime - now), radio_cmd->channel);
 
     driver_data->rf.cmd.active_handle = RF_postCmd(rfBleHandle, (RF_Op*)radio_cmd,
-                                                   RF_PriorityNormal, rf_callback, RF_EVENT_MASK);
+                                                   RF_PriorityNormal, rf_callback, RF_EVENT_ISR_MASK);
 
 	return remainder;
 }
