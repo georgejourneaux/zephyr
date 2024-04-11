@@ -1,11 +1,55 @@
-/*
- * Copyright (c) 2016 Nordic Semiconductor ASA
- * Copyright (c) 2016 Vinayak Kariappa Chettimada
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+#ifndef BT_CTLR_RADIO_H
+#define BT_CTLR_RADIO_H
 
-#define RADIO_TXP_DEFAULT 0
+#include <ti/drivers/rf/RF.h>
+
+#define RADIO_RX_CONFIG_AUTO_FLUSH_IGNORED (1)
+#define RADIO_RX_CONFIG_AUTO_FLUSH_CRC_ERR (1)
+#define RADIO_RX_CONFIG_AUTO_FLUSH_EMPTY   (0)
+#define RADIO_RX_CONFIG_INCLUDE_LEN_BYTE   (1)
+#define RADIO_RX_CONFIG_INCLUDE_CRC        (1)
+#define RADIO_RX_CONFIG_APPEND_RSSI        (1)
+#define RADIO_RX_CONFIG_APPEND_STATUS      (0)
+#define RADIO_RX_CONFIG_APPEND_TIMESTAMP   (1)
+
+#define RADIO_RX_ADDITIONAL_DATA_BYTES                                                             \
+	(RADIO_RX_CONFIG_INCLUDE_LEN_BYTE + RADIO_RX_CONFIG_INCLUDE_CRC +                          \
+	 RADIO_RX_CONFIG_APPEND_RSSI + RADIO_RX_CONFIG_APPEND_STATUS +                             \
+	 RADIO_RX_CONFIG_APPEND_TIMESTAMP)
+
+#define RADIO_RX_ENTRY_BUFFER_SIZE (2)
+#define RADIO_RX_BUFFER_SIZE       (HAL_RADIO_PDU_LEN_MAX + RADIO_RX_ADDITIONAL_DATA_BYTES)
+
+#define RF_TX_ENTRY_BUFFER_SIZE (2)
+#define RF_TX_BUFFER_SIZE       HAL_RADIO_PDU_LEN_MAX
+
+typedef enum RADIO_TRX {
+	RADIO_TRX_RX = 0,
+	RADIO_TRX_TX,
+} radio_trx_t;
+
+typedef enum RADIO_TX_POWER {
+	RADIO_TX_POWER_m20 = 0,
+	RADIO_TX_POWER_m18,
+	RADIO_TX_POWER_m15,
+	RADIO_TX_POWER_m12,
+	RADIO_TX_POWER_m10,
+	RADIO_TX_POWER_m9,
+	RADIO_TX_POWER_m6,
+	RADIO_TX_POWER_m5,
+	RADIO_TX_POWER_m3,
+	RADIO_TX_POWER_0,
+	RADIO_TX_POWER_1,
+	RADIO_TX_POWER_2,
+	RADIO_TX_POWER_3,
+	RADIO_TX_POWER_4,
+	RADIO_TX_POWER_5,
+
+	RADIO_TX_POWER_TABLE_END,
+	RADIO_TX_POWER_TABLE_SIZE,
+
+	RADIO_TXP_DEFAULT = RADIO_TX_POWER_0,
+} radio_tx_power_t;
 
 /* Set of macros related with Radio packet configuration flags */
 /* PDU type, 2 bit field*/
@@ -56,9 +100,12 @@
 
 #define HAL_RADIO_PDU_LEN_MAX (BIT(8) - 1)
 
-enum radio_end_evt_delay_state { END_EVT_DELAY_DISABLED, END_EVT_DELAY_ENABLED };
+enum radio_end_evt_delay_state {
+	END_EVT_DELAY_DISABLED,
+	END_EVT_DELAY_ENABLED
+};
 
-typedef void (*radio_isr_cb_t) (void *param);
+typedef void (*radio_isr_cb_t)(void *param);
 
 void isr_radio(void);
 void radio_isr_set(radio_isr_cb_t cb, void *param);
@@ -74,7 +121,7 @@ void radio_whiten_iv_set(uint32_t iv);
 void radio_aa_set(const uint8_t *aa);
 void radio_pkt_configure(uint8_t bits_len, uint8_t max_len, uint8_t flags);
 void radio_pkt_rx_set(void *rx_packet);
-void radio_pkt_tx_set(void *tx_packet);
+void radio_pkt_tx_set(RF_Op *tx_packet);
 uint32_t radio_tx_ready_delay_get(uint8_t phy, uint8_t flags);
 uint32_t radio_tx_chain_delay_get(uint8_t phy, uint8_t flags);
 uint32_t radio_rx_ready_delay_get(uint8_t phy, uint8_t flags);
@@ -107,8 +154,7 @@ uint32_t radio_rssi_get(void);
 void radio_rssi_status_reset(void);
 uint32_t radio_rssi_is_ready(void);
 
-void radio_filter_configure(uint8_t bitmask_enable, uint8_t bitmask_addr_type,
-			    uint8_t *bdaddr);
+void radio_filter_configure(uint8_t bitmask_enable, uint8_t bitmask_addr_type, uint8_t *bdaddr);
 void radio_filter_disable(void);
 void radio_filter_status_reset(void);
 uint32_t radio_filter_has_match(void);
@@ -159,3 +205,4 @@ void radio_ar_status_reset(void);
 uint32_t radio_ar_has_match(void);
 uint8_t radio_ar_resolve(const uint8_t *addr);
 
+#endif /* BT_CTLR_RADIO_H */
