@@ -12,16 +12,13 @@
 #define RADIO_RX_CONFIG_APPEND_STATUS      (0)
 #define RADIO_RX_CONFIG_APPEND_TIMESTAMP   (1)
 
-#define RADIO_RX_ADDITIONAL_DATA_BYTES                                                             \
-	(RADIO_RX_CONFIG_INCLUDE_LEN_BYTE + RADIO_RX_CONFIG_INCLUDE_CRC +                          \
-	 RADIO_RX_CONFIG_APPEND_RSSI + RADIO_RX_CONFIG_APPEND_STATUS +                             \
-	 RADIO_RX_CONFIG_APPEND_TIMESTAMP)
+#define RADIO_RF_EVENT_MASK_TX_DONE (RF_EventTxDone)
 
-#define RADIO_RX_ENTRY_BUFFER_SIZE (2)
-#define RADIO_RX_BUFFER_SIZE       (HAL_RADIO_PDU_LEN_MAX + RADIO_RX_ADDITIONAL_DATA_BYTES)
+#define RADIO_RF_EVENT_MASK_RX_DONE                                                                \
+	(RF_EventRxOk | RF_EventRxEmpty | RF_EventRxCtrl | RF_EventRxCtrlAck | RF_EventRxBufFull | \
+	 RF_EventRxEntryDone)
 
-#define RF_TX_ENTRY_BUFFER_SIZE (2)
-#define RF_TX_BUFFER_SIZE       HAL_RADIO_PDU_LEN_MAX
+#define RADIO_RF_EVENT_MASK_CMD_DONE (RF_EventLastCmdDone)
 
 typedef enum RADIO_TRX {
 	RADIO_TRX_RX = 0,
@@ -105,9 +102,14 @@ enum radio_end_evt_delay_state {
 	END_EVT_DELAY_ENABLED
 };
 
-typedef void (*radio_isr_cb_t)(void *param);
+typedef struct RADIO_ISR_CB_RF_PARAM {
+	RF_Handle handle;
+	RF_CmdHandle command_handle;
+	RF_EventMask event_mask;
+} radio_isr_cb_rf_param_t;
 
-void isr_radio(void);
+typedef void (*radio_isr_cb_t)(void *param, radio_isr_cb_rf_param_t rf_param);
+
 void radio_isr_set(radio_isr_cb_t cb, void *param);
 
 void radio_setup(void);

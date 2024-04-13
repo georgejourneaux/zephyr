@@ -7,6 +7,8 @@
 #define PDU_ADV_MEM_SIZE MROUND(PDU_AC_LL_HEADER_SIZE + PDU_AC_PAYLOAD_SIZE_MAX)
 #endif
 
+int lll_adv_pdu_init_reset(void);
+
 int lll_adv_data_init(struct lll_adv_pdu *pdu);
 int lll_adv_data_reset(struct lll_adv_pdu *pdu);
 int lll_adv_data_dequeue(struct lll_adv_pdu *pdu);
@@ -20,10 +22,13 @@ struct pdu_adv *lll_adv_data_latest_peek(const struct lll_adv *const lll);
 
 struct pdu_adv *lll_adv_pdu_alloc(struct lll_adv_pdu *pdu, uint8_t *idx);
 struct pdu_adv *lll_adv_pdu_alloc_pdu_adv(void);
+struct pdu_adv *lll_adv_pdu_latest_peek(const struct lll_adv_pdu *const pdu);
 
 void lll_adv_scan_rsp_enqueue(struct lll_adv *lll, uint8_t idx);
 struct pdu_adv *lll_adv_scan_rsp_alloc(struct lll_adv *lll, uint8_t *idx);
 struct pdu_adv *lll_adv_scan_rsp_peek(const struct lll_adv *lll);
+
+struct pdu_adv *lll_adv_pdu_latest_get(struct lll_adv_pdu *pdu, uint8_t *is_modified);
 
 #if defined(CONFIG_BT_CTLR_ADV_EXT)
 int lll_adv_aux_data_init(struct lll_adv_pdu *pdu);

@@ -44,7 +44,7 @@
 #include "hal/debug.h"
 
 static int init_reset(void);
-static void isr_done(void *param);
+static void isr_done(void *param, radio_isr_cb_rf_param_t rf_param);
 static inline int isr_rx_pdu(struct lll_conn *lll, struct pdu_data *pdu_data_rx,
 			     uint8_t *is_rx_enqueue, struct node_tx **tx_release, uint8_t *is_done);
 static void empty_tx_init(void);
@@ -355,7 +355,7 @@ void lll_conn_isr_rx(void *param)
 		radio_switch_complete_and_rx(0);
 #endif /* !CONFIG_BT_CTLR_PHY */
 
-		radio_isr_set(lll_conn_isr_tx, param);
+		radio_isr_set(lll_isr_conn, param);
 
 		/* capture end of Tx-ed PDU, used to calculate HCTO. */
 		radio_tmr_end_capture();
@@ -616,7 +616,7 @@ void lll_conn_isr_tx(void *param)
 #endif /* !CONFIG_BT_CTLR_PHY */
 #endif /* HAL_RADIO_GPIO_HAVE_LNA_PIN */
 
-	radio_isr_set(lll_conn_isr_rx, param);
+	radio_isr_set(lll_isr_conn, param);
 
 #if defined(CONFIG_BT_CTLR_LOW_LAT_ULL)
 	ull_conn_lll_tx_demux_sched(lll);
@@ -815,8 +815,11 @@ static int init_reset(void)
 	return 0;
 }
 
-static void isr_done(void *param)
+static void isr_done(void *param, radio_isr_cb_rf_param_t rf_param)
 {
+	if (false == (rf_param.event_mask & RADIO_RF_EVENT_MASK_RX_DONE)) {
+		return;
+	}
 	struct event_done_extra *e;
 
 	lll_isr_status_reset();

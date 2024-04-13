@@ -81,11 +81,9 @@ void lll_periph_prepare(void *param)
 
 	/* Accumulate window widening */
 	lll->periph.window_widening_prepare_us +=
-	    lll->periph.window_widening_periodic_us * (p->lazy + 1);
-	if (lll->periph.window_widening_prepare_us >
-	    lll->periph.window_widening_max_us) {
-		lll->periph.window_widening_prepare_us =
-			lll->periph.window_widening_max_us;
+		lll->periph.window_widening_periodic_us * (p->lazy + 1);
+	if (lll->periph.window_widening_prepare_us > lll->periph.window_widening_max_us) {
+		lll->periph.window_widening_prepare_us = lll->periph.window_widening_max_us;
 	}
 
 	/* Invoke common pipeline handling of prepare */
@@ -146,33 +144,26 @@ static int prepare_cb(struct lll_prepare_param *p)
 	if (lll->data_chan_sel) {
 #if defined(CONFIG_BT_CTLR_CHAN_SEL_2)
 		data_chan_use = lll_chan_sel_2(event_counter, lll->data_chan_id,
-					       &lll->data_chan_map[0],
-					       lll->data_chan_count);
-#else /* !CONFIG_BT_CTLR_CHAN_SEL_2 */
+					       &lll->data_chan_map[0], lll->data_chan_count);
+#else  /* !CONFIG_BT_CTLR_CHAN_SEL_2 */
 		data_chan_use = 0;
 		LL_ASSERT(0);
 #endif /* !CONFIG_BT_CTLR_CHAN_SEL_2 */
 	} else {
-		data_chan_use = lll_chan_sel_1(&lll->data_chan_use,
-					       lll->data_chan_hop,
-					       lll->latency_event,
-					       &lll->data_chan_map[0],
-					       lll->data_chan_count);
+		data_chan_use =
+			lll_chan_sel_1(&lll->data_chan_use, lll->data_chan_hop, lll->latency_event,
+				       &lll->data_chan_map[0], lll->data_chan_count);
 	}
 
 	/* current window widening */
-	lll->periph.window_widening_event_us +=
-		lll->periph.window_widening_prepare_us;
+	lll->periph.window_widening_event_us += lll->periph.window_widening_prepare_us;
 	lll->periph.window_widening_prepare_us = 0;
-	if (lll->periph.window_widening_event_us >
-	    lll->periph.window_widening_max_us) {
-		lll->periph.window_widening_event_us =
-			lll->periph.window_widening_max_us;
+	if (lll->periph.window_widening_event_us > lll->periph.window_widening_max_us) {
+		lll->periph.window_widening_event_us = lll->periph.window_widening_max_us;
 	}
 
 	/* current window size */
-	lll->periph.window_size_event_us +=
-		lll->periph.window_size_prepare_us;
+	lll->periph.window_size_event_us += lll->periph.window_size_prepare_us;
 	lll->periph.window_size_prepare_us = 0;
 
 	/* Ensure that empty flag reflects the state of the Tx queue, as a
@@ -202,12 +193,11 @@ static int prepare_cb(struct lll_prepare_param *p)
 #endif /* CONFIG_BT_CTLR_TX_PWR_DYNAMIC_CONTROL */
 
 	radio_aa_set(lll->access_addr);
-	radio_crc_configure(PDU_CRC_POLYNOMIAL,
-				sys_get_le24(lll->crc_init));
+	radio_crc_configure(PDU_CRC_POLYNOMIAL, sys_get_le24(lll->crc_init));
 
-	lll_chan_set(data_chan_use);
+	lll_radio_chan_set(data_chan_use);
 
-	radio_isr_set(lll_conn_isr_rx, lll);
+	radio_isr_set(lll_isr_conn, lll);
 
 	radio_tmr_tifs_set(EVENT_IFS_US);
 
@@ -226,8 +216,9 @@ static int prepare_cb(struct lll_prepare_param *p)
 
 		if (df_rx_params->is_enabled == true) {
 			(void)lll_df_conf_cte_rx_enable(df_rx_params->slot_durations,
-						  df_rx_params->ant_sw_len, df_rx_params->ant_ids,
-						  data_chan_use, CTE_INFO_IN_S1_BYTE, lll->phy_rx);
+							df_rx_params->ant_sw_len,
+							df_rx_params->ant_ids, data_chan_use,
+							CTE_INFO_IN_S1_BYTE, lll->phy_rx);
 			lll->df_rx_cfg.chan = data_chan_use;
 		} else {
 			lll_df_conf_cte_info_parsing_enable();
@@ -244,7 +235,7 @@ static int prepare_cb(struct lll_prepare_param *p)
 #if defined(CONFIG_BT_CTLR_PHY)
 	radio_switch_complete_with_delay_compensation_and_tx(lll->phy_rx, 0, lll->phy_tx,
 							     lll->phy_flags, end_evt_delay);
-#else /* !CONFIG_BT_CTLR_PHY */
+#else  /* !CONFIG_BT_CTLR_PHY */
 	radio_switch_complete_with_delay_compensation_and_tx(0, 0, 0, 0, end_evt_delay);
 #endif /* !CONFIG_BT_CTLR_PHY */
 
@@ -258,7 +249,7 @@ static int prepare_cb(struct lll_prepare_param *p)
 	if (!IS_ENABLED(CONFIG_BT_CTLR_DF_PHYEND_OFFSET_COMPENSATION_ENABLE)) {
 #if defined(CONFIG_BT_CTLR_PHY)
 		radio_switch_complete_and_tx(lll->phy_rx, 0, lll->phy_tx, lll->phy_flags);
-#else /* !CONFIG_BT_CTLR_PHY && !CONFIG_BT_CTLR_DF_PHYEND_OFFSET_COMPENSATION_ENABLE */
+#else  /* !CONFIG_BT_CTLR_PHY && !CONFIG_BT_CTLR_DF_PHYEND_OFFSET_COMPENSATION_ENABLE */
 		radio_switch_complete_and_tx(0, 0, 0, 0);
 #endif /* !CONFIG_BT_CTLR_PHY */
 	}
@@ -283,14 +274,15 @@ static int prepare_cb(struct lll_prepare_param *p)
 
 	hcto = remainder_us +
 	       ((EVENT_JITTER_US + EVENT_TICKER_RES_MARGIN_US +
-		 lll->periph.window_widening_event_us) << 1) +
+		 lll->periph.window_widening_event_us)
+		<< 1) +
 	       lll->periph.window_size_event_us;
 
 #if defined(CONFIG_BT_CTLR_PHY)
 	hcto += radio_rx_ready_delay_get(lll->phy_rx, 1);
 	hcto += addr_us_get(lll->phy_rx);
 	hcto += radio_rx_chain_delay_get(lll->phy_rx, 1);
-#else /* !CONFIG_BT_CTLR_PHY */
+#else  /* !CONFIG_BT_CTLR_PHY */
 	hcto += radio_rx_ready_delay_get(0, 0);
 	hcto += addr_us_get(0);
 	hcto += radio_rx_chain_delay_get(0, 0);
@@ -302,18 +294,15 @@ static int prepare_cb(struct lll_prepare_param *p)
 	radio_gpio_lna_setup();
 
 #if defined(CONFIG_BT_CTLR_PHY)
-	radio_gpio_pa_lna_enable(remainder_us +
-				 radio_rx_ready_delay_get(lll->phy_rx, 1) -
+	radio_gpio_pa_lna_enable(remainder_us + radio_rx_ready_delay_get(lll->phy_rx, 1) -
 				 HAL_RADIO_GPIO_LNA_OFFSET);
-#else /* !CONFIG_BT_CTLR_PHY */
-	radio_gpio_pa_lna_enable(remainder_us +
-				 radio_rx_ready_delay_get(0, 0) -
+#else  /* !CONFIG_BT_CTLR_PHY */
+	radio_gpio_pa_lna_enable(remainder_us + radio_rx_ready_delay_get(0, 0) -
 				 HAL_RADIO_GPIO_LNA_OFFSET);
 #endif /* !CONFIG_BT_CTLR_PHY */
 #endif /* HAL_RADIO_GPIO_HAVE_LNA_PIN */
 
-#if defined(CONFIG_BT_CTLR_PROFILE_ISR) || \
-	defined(HAL_RADIO_GPIO_HAVE_PA_PIN)
+#if defined(CONFIG_BT_CTLR_PROFILE_ISR) || defined(HAL_RADIO_GPIO_HAVE_PA_PIN)
 	radio_tmr_end_capture();
 #endif /* CONFIG_BT_CTLR_PROFILE_ISR */
 
@@ -321,7 +310,7 @@ static int prepare_cb(struct lll_prepare_param *p)
 	radio_rssi_measure();
 #endif /* CONFIG_BT_CTLR_CONN_RSSI */
 
-#if defined(CONFIG_BT_CTLR_XTAL_ADVANCED) && \
+#if defined(CONFIG_BT_CTLR_XTAL_ADVANCED) &&                                                       \
 	(EVENT_OVERHEAD_PREEMPT_US <= EVENT_OVERHEAD_PREEMPT_MIN_US)
 	uint32_t overhead;
 
