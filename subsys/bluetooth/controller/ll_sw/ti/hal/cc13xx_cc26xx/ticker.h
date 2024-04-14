@@ -7,12 +7,12 @@
 
 #include <ti/drivers/rf/RF.h>
 
-#define HAL_TICKER_FSEC_PER_USEC      1000000000UL
-#define HAL_TICKER_PSEC_PER_USEC      1000000UL
-#define HAL_TICKER_FSEC_PER_PSEC      1000UL
-#define HAL_TICKER_CNTR_CLK_FREQ_HZ   4000000U
+#define HAL_TICKER_FSEC_PER_USEC    1000000000UL
+#define HAL_TICKER_PSEC_PER_USEC    1000000UL
+#define HAL_TICKER_FSEC_PER_PSEC    1000UL
+#define HAL_TICKER_CNTR_CLK_FREQ_HZ 4000000U
 
-#define HAL_TICKER_CNTR_CLK_UNIT_FSEC (HAL_TICKER_FSEC_PER_USEC/HAL_TICKER_CNTR_CLK_FREQ_HZ)
+#define HAL_TICKER_CNTR_CLK_UNIT_FSEC (HAL_TICKER_FSEC_PER_USEC / HAL_TICKER_CNTR_CLK_FREQ_HZ)
 
 /* Macro defining the minimum counter compare offset */
 #define HAL_TICKER_CNTR_CMP_OFFSET_MIN RF_convertUsToRatTicks(96)
@@ -34,28 +34,21 @@
 /* Macro to translate microseconds to tick units.
  * NOTE: This returns the ceil value.
  */
-#define HAL_TICKER_US_TO_TICKS_CEIL(x) RF_convertUsToRatTicks(x)
+#define HAL_TICKER_US_TO_TICKS_CEIL(x) HAL_TICKER_US_TO_TICKS(x)
 
 /* Macro to translate tick units to microseconds. */
 #define HAL_TICKER_TICKS_TO_US(x) RF_convertRatTicksToUs(x)
 
 /* Macro returning remainder in picoseconds (to fit in 32-bits) */
-#define HAL_TICKER_REMAINDER(x) \
-	( \
-		( \
-			((uint64_t) (x) * HAL_TICKER_FSEC_PER_USEC) \
-			- ((uint64_t)HAL_TICKER_US_TO_TICKS(x) * \
-			   HAL_TICKER_CNTR_CLK_UNIT_FSEC) \
-		) \
-		/ HAL_TICKER_FSEC_PER_PSEC \
-	)
+#define HAL_TICKER_REMAINDER(x)                                                                    \
+	((((uint64_t)(x) * HAL_TICKER_FSEC_PER_USEC) -                                             \
+	  ((uint64_t)HAL_TICKER_US_TO_TICKS(x) * HAL_TICKER_CNTR_CLK_UNIT_FSEC)) /                 \
+	 HAL_TICKER_FSEC_PER_PSEC)
 
 /* Macro defining the remainder resolution/range
  * ~ 1000000 * HAL_TICKER_TICKS_TO_US(1)
  */
-#define HAL_TICKER_REMAINDER_RANGE \
-	HAL_TICKER_TICKS_TO_US(HAL_TICKER_PSEC_PER_USEC)
+#define HAL_TICKER_REMAINDER_RANGE HAL_TICKER_TICKS_TO_US(HAL_TICKER_PSEC_PER_USEC)
 
 /* Macro defining the margin for positioning re-scheduled nodes */
-#define HAL_TICKER_RESCHEDULE_MARGIN \
-	HAL_TICKER_US_TO_TICKS(150)
+#define HAL_TICKER_RESCHEDULE_MARGIN HAL_TICKER_US_TO_TICKS(150)

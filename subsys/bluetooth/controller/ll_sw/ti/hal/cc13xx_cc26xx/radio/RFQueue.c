@@ -55,5 +55,5 @@ rfc_dataEntryGeneral_t *RFQueue_defineQueue(dataQueue_t *queue, uint8_t *buffer,
 	queue->pCurrEntry = first_entry;
 	queue->pLastEntry = NULL;
 
-	return ((rfc_dataEntryGeneral_t **)queue->pCurrEntry);
+	return ((rfc_dataEntryGeneral_t *)queue->pCurrEntry);
 }

@@ -68,50 +68,106 @@ LOG_MODULE_REGISTER(bt_ti_radio);
 #define Rx_OVHD      (32)  /* Rx overhead, depends on PHY type */
 #define MIN_CMD_TIME (400) /* Minimum interval for a delayed radio cmd */
 
-typedef enum BLE_CHANNEL_FREQUENCY {
-	BLE_CHANNEL_FREQUENCY_2402 = 37,
-	BLE_CHANNEL_FREQUENCY_2404 = 0,
-	BLE_CHANNEL_FREQUENCY_2406 = 1,
-	BLE_CHANNEL_FREQUENCY_2408 = 2,
-	BLE_CHANNEL_FREQUENCY_2410 = 3,
-	BLE_CHANNEL_FREQUENCY_2412 = 4,
-	BLE_CHANNEL_FREQUENCY_2414 = 5,
-	BLE_CHANNEL_FREQUENCY_2416 = 6,
-	BLE_CHANNEL_FREQUENCY_2418 = 7,
-	BLE_CHANNEL_FREQUENCY_2420 = 8,
-	BLE_CHANNEL_FREQUENCY_2422 = 9,
-	BLE_CHANNEL_FREQUENCY_2424 = 10,
-	BLE_CHANNEL_FREQUENCY_2426 = 38,
-	BLE_CHANNEL_FREQUENCY_2428 = 11,
-	BLE_CHANNEL_FREQUENCY_2430 = 12,
-	BLE_CHANNEL_FREQUENCY_2432 = 13,
-	BLE_CHANNEL_FREQUENCY_2434 = 14,
-	BLE_CHANNEL_FREQUENCY_2436 = 15,
-	BLE_CHANNEL_FREQUENCY_2438 = 16,
-	BLE_CHANNEL_FREQUENCY_2440 = 17,
-	BLE_CHANNEL_FREQUENCY_2442 = 18,
-	BLE_CHANNEL_FREQUENCY_2444 = 19,
-	BLE_CHANNEL_FREQUENCY_2446 = 20,
-	BLE_CHANNEL_FREQUENCY_2448 = 21,
-	BLE_CHANNEL_FREQUENCY_2450 = 22,
-	BLE_CHANNEL_FREQUENCY_2452 = 23,
-	BLE_CHANNEL_FREQUENCY_2454 = 24,
-	BLE_CHANNEL_FREQUENCY_2456 = 25,
-	BLE_CHANNEL_FREQUENCY_2458 = 26,
-	BLE_CHANNEL_FREQUENCY_2460 = 27,
-	BLE_CHANNEL_FREQUENCY_2462 = 28,
-	BLE_CHANNEL_FREQUENCY_2464 = 29,
-	BLE_CHANNEL_FREQUENCY_2466 = 30,
-	BLE_CHANNEL_FREQUENCY_2468 = 31,
-	BLE_CHANNEL_FREQUENCY_2470 = 32,
-	BLE_CHANNEL_FREQUENCY_2472 = 33,
-	BLE_CHANNEL_FREQUENCY_2474 = 34,
-	BLE_CHANNEL_FREQUENCY_2476 = 35,
-	BLE_CHANNEL_FREQUENCY_2478 = 36,
-	BLE_CHANNEL_FREQUENCY_2480 = 39,
+typedef enum RF_CHANNEL {
+	RF_CHANNEL_0 = 0,
+	RF_CHANNEL_1,
+	RF_CHANNEL_2,
+	RF_CHANNEL_3,
+	RF_CHANNEL_4,
+	RF_CHANNEL_5,
+	RF_CHANNEL_6,
+	RF_CHANNEL_7,
+	RF_CHANNEL_8,
+	RF_CHANNEL_9,
+	RF_CHANNEL_10,
+	RF_CHANNEL_11,
+	RF_CHANNEL_12,
+	RF_CHANNEL_13,
+	RF_CHANNEL_14,
+	RF_CHANNEL_15,
+	RF_CHANNEL_16,
+	RF_CHANNEL_17,
+	RF_CHANNEL_18,
+	RF_CHANNEL_19,
+	RF_CHANNEL_20,
+	RF_CHANNEL_21,
+	RF_CHANNEL_22,
+	RF_CHANNEL_23,
+	RF_CHANNEL_24,
+	RF_CHANNEL_25,
+	RF_CHANNEL_26,
+	RF_CHANNEL_27,
+	RF_CHANNEL_28,
+	RF_CHANNEL_29,
+	RF_CHANNEL_30,
+	RF_CHANNEL_31,
+	RF_CHANNEL_32,
+	RF_CHANNEL_33,
+	RF_CHANNEL_34,
+	RF_CHANNEL_35,
+	RF_CHANNEL_36,
+	RF_CHANNEL_37,
+	RF_CHANNEL_38,
+	RF_CHANNEL_39,
 
-	BLE_FREQUENCY_TABLE_SIZE,
-} ble_frequency_table_entry_t;
+	RF_CHANNEL_COUNT,
+} rf_channel_t;
+
+typedef enum RF_CHANNEL_FREQUENCY {
+	RF_CHANNEL_FREQUENCY_2402 = RF_CHANNEL_37,
+	RF_CHANNEL_FREQUENCY_2404 = RF_CHANNEL_0,
+	RF_CHANNEL_FREQUENCY_2406 = RF_CHANNEL_1,
+	RF_CHANNEL_FREQUENCY_2408 = RF_CHANNEL_2,
+	RF_CHANNEL_FREQUENCY_2410 = RF_CHANNEL_3,
+	RF_CHANNEL_FREQUENCY_2412 = RF_CHANNEL_4,
+	RF_CHANNEL_FREQUENCY_2414 = RF_CHANNEL_5,
+	RF_CHANNEL_FREQUENCY_2416 = RF_CHANNEL_6,
+	RF_CHANNEL_FREQUENCY_2418 = RF_CHANNEL_7,
+	RF_CHANNEL_FREQUENCY_2420 = RF_CHANNEL_8,
+	RF_CHANNEL_FREQUENCY_2422 = RF_CHANNEL_9,
+	RF_CHANNEL_FREQUENCY_2424 = RF_CHANNEL_10,
+	RF_CHANNEL_FREQUENCY_2426 = RF_CHANNEL_38,
+	RF_CHANNEL_FREQUENCY_2428 = RF_CHANNEL_11,
+	RF_CHANNEL_FREQUENCY_2430 = RF_CHANNEL_12,
+	RF_CHANNEL_FREQUENCY_2432 = RF_CHANNEL_13,
+	RF_CHANNEL_FREQUENCY_2434 = RF_CHANNEL_14,
+	RF_CHANNEL_FREQUENCY_2436 = RF_CHANNEL_15,
+	RF_CHANNEL_FREQUENCY_2438 = RF_CHANNEL_16,
+	RF_CHANNEL_FREQUENCY_2440 = RF_CHANNEL_17,
+	RF_CHANNEL_FREQUENCY_2442 = RF_CHANNEL_18,
+	RF_CHANNEL_FREQUENCY_2444 = RF_CHANNEL_19,
+	RF_CHANNEL_FREQUENCY_2446 = RF_CHANNEL_20,
+	RF_CHANNEL_FREQUENCY_2448 = RF_CHANNEL_21,
+	RF_CHANNEL_FREQUENCY_2450 = RF_CHANNEL_22,
+	RF_CHANNEL_FREQUENCY_2452 = RF_CHANNEL_23,
+	RF_CHANNEL_FREQUENCY_2454 = RF_CHANNEL_24,
+	RF_CHANNEL_FREQUENCY_2456 = RF_CHANNEL_25,
+	RF_CHANNEL_FREQUENCY_2458 = RF_CHANNEL_26,
+	RF_CHANNEL_FREQUENCY_2460 = RF_CHANNEL_27,
+	RF_CHANNEL_FREQUENCY_2462 = RF_CHANNEL_28,
+	RF_CHANNEL_FREQUENCY_2464 = RF_CHANNEL_29,
+	RF_CHANNEL_FREQUENCY_2466 = RF_CHANNEL_30,
+	RF_CHANNEL_FREQUENCY_2468 = RF_CHANNEL_31,
+	RF_CHANNEL_FREQUENCY_2470 = RF_CHANNEL_32,
+	RF_CHANNEL_FREQUENCY_2472 = RF_CHANNEL_33,
+	RF_CHANNEL_FREQUENCY_2474 = RF_CHANNEL_34,
+	RF_CHANNEL_FREQUENCY_2476 = RF_CHANNEL_35,
+	RF_CHANNEL_FREQUENCY_2478 = RF_CHANNEL_36,
+	RF_CHANNEL_FREQUENCY_2480 = RF_CHANNEL_39,
+
+	RF_CHANNEL_FREQUENCY_COUNT,
+} rf_channel_frequency_t;
+
+typedef enum RF_PHY {
+	RF_PHY_1MBS = 0,
+	RF_PHY_2MBS,
+	RF_PHY_CODED,
+} rf_phy_t;
+
+typedef struct rf_frequency_table_entry {
+	const uint16_t frequency;
+	const uint8_t whitening;
+} rf_frequency_table_entry_t;
 
 typedef struct RF_RX_DATA {
 	rfc_dataEntryGeneral_t *entry;
@@ -119,19 +175,20 @@ typedef struct RF_RX_DATA {
 	uint8_t buffer[RF_QUEUE_DATA_ENTRY_BUFFER_SIZE(RF_RX_ENTRY_BUFFER_SIZE, RF_RX_BUFFER_SIZE)]
 		__attribute__((aligned(4)));
 } rf_rx_data_t;
-typedef struct rf_tx_data {
+
+typedef struct RF_TX_DATA {
 	rfc_dataEntryGeneral_t *entry;
 	dataQueue_t queue;
 	uint8_t buffer[RF_QUEUE_DATA_ENTRY_BUFFER_SIZE(RF_TX_ENTRY_BUFFER_SIZE, RF_TX_BUFFER_SIZE)]
 		__attribute__((aligned(4)));
 } rf_tx_data_t;
 
-typedef struct ble_cc13xx_cc26xx_rf_rat {
+typedef struct RF_RAT {
 	RF_RatConfigCompare hcto_compare;
 	RF_RatHandle hcto_handle;
-} ble_cc13xx_cc26xx_rf_rat_t;
+} rf_rat_t;
 
-typedef struct ble_cc13xx_cc26xx_rf_cmd {
+typedef struct RF_CMD {
 	RF_CmdHandle active_handle;
 
 	rfc_CMD_NOP_t nop;
@@ -147,31 +204,27 @@ typedef struct ble_cc13xx_cc26xx_rf_cmd {
 	rfc_ble5SlavePar_t _ble5_slave_param;
 	rfc_bleMasterSlaveOutput_t _ble_slave_output;
 	rfc_CMD_BLE5_SLAVE_t ble5_slave;
-} ble_cc13xx_cc26xx_rf_cmd_t;
+} rf_cmd_t;
 
-typedef struct ble_cc13xx_cc26xx_rf {
+typedef struct RF {
 	RF_Op *op;
 	rf_rx_data_t rx;
 	rf_tx_data_t tx;
-	ble_cc13xx_cc26xx_rf_rat_t rat;
-	ble_cc13xx_cc26xx_rf_cmd_t cmd;
-} ble_cc13xx_cc26xx_rf_t;
+	rf_rat_t rat;
+	rf_cmd_t cmd;
+} rf_t;
 
 typedef struct ble_cc13xx_cc26xx_data {
 	uint32_t access_address;
 	uint32_t polynomial;
 	uint32_t iv;
-	uint16_t channel;
+	rf_channel_t channel;
+	rf_phy_t phy;
 
 	uint8_t *lll_rx_pdu;
 
-	ble_cc13xx_cc26xx_rf_t rf;
+	rf_t rf;
 } ble_cc13xx_cc26xx_data_t;
-
-typedef struct cc13xx_cc26xx_frequency_table_entry {
-	const uint16_t frequency;
-	const uint8_t whitening;
-} cc13xx_cc26xx_frequency_table_entry_t;
 
 #if !(defined(CONFIG_PM) || defined(CONFIG_PM_DEVICE) || defined(CONFIG_POWEROFF))
 const PowerCC26X2_Config PowerCC26X2_config = {
@@ -267,47 +320,47 @@ uint32_t pOverrides_bleCoded[] = {
 	// Rx: Set AGC reference level to 0x21 (default: 0x2E)
 	HW_REG_OVERRIDE(0x609C, 0x0021), (uint32_t)0xFFFFFFFF};
 
-static const cc13xx_cc26xx_frequency_table_entry_t frequency_table[BLE_FREQUENCY_TABLE_SIZE] = {
-	[BLE_CHANNEL_FREQUENCY_2402] = {.frequency = 2402, .whitening = 0xE5},
-	[BLE_CHANNEL_FREQUENCY_2404] = {.frequency = 2404, .whitening = 0xC0},
-	[BLE_CHANNEL_FREQUENCY_2406] = {.frequency = 2406, .whitening = 0xC1},
-	[BLE_CHANNEL_FREQUENCY_2408] = {.frequency = 2408, .whitening = 0xC2},
-	[BLE_CHANNEL_FREQUENCY_2410] = {.frequency = 2410, .whitening = 0xC3},
-	[BLE_CHANNEL_FREQUENCY_2412] = {.frequency = 2412, .whitening = 0xC4},
-	[BLE_CHANNEL_FREQUENCY_2414] = {.frequency = 2414, .whitening = 0xC5},
-	[BLE_CHANNEL_FREQUENCY_2416] = {.frequency = 2416, .whitening = 0xC6},
-	[BLE_CHANNEL_FREQUENCY_2418] = {.frequency = 2418, .whitening = 0xC7},
-	[BLE_CHANNEL_FREQUENCY_2420] = {.frequency = 2420, .whitening = 0xC8},
-	[BLE_CHANNEL_FREQUENCY_2422] = {.frequency = 2422, .whitening = 0xC9},
-	[BLE_CHANNEL_FREQUENCY_2424] = {.frequency = 2424, .whitening = 0xCA},
-	[BLE_CHANNEL_FREQUENCY_2426] = {.frequency = 2426, .whitening = 0xE6},
-	[BLE_CHANNEL_FREQUENCY_2428] = {.frequency = 2428, .whitening = 0xCB},
-	[BLE_CHANNEL_FREQUENCY_2430] = {.frequency = 2430, .whitening = 0xCC},
-	[BLE_CHANNEL_FREQUENCY_2432] = {.frequency = 2432, .whitening = 0xCD},
-	[BLE_CHANNEL_FREQUENCY_2434] = {.frequency = 2434, .whitening = 0xCE},
-	[BLE_CHANNEL_FREQUENCY_2436] = {.frequency = 2436, .whitening = 0xCF},
-	[BLE_CHANNEL_FREQUENCY_2438] = {.frequency = 2438, .whitening = 0xD0},
-	[BLE_CHANNEL_FREQUENCY_2440] = {.frequency = 2440, .whitening = 0xD1},
-	[BLE_CHANNEL_FREQUENCY_2442] = {.frequency = 2442, .whitening = 0xD2},
-	[BLE_CHANNEL_FREQUENCY_2444] = {.frequency = 2444, .whitening = 0xD3},
-	[BLE_CHANNEL_FREQUENCY_2446] = {.frequency = 2446, .whitening = 0xD4},
-	[BLE_CHANNEL_FREQUENCY_2448] = {.frequency = 2448, .whitening = 0xD5},
-	[BLE_CHANNEL_FREQUENCY_2450] = {.frequency = 2450, .whitening = 0xD6},
-	[BLE_CHANNEL_FREQUENCY_2452] = {.frequency = 2452, .whitening = 0xD7},
-	[BLE_CHANNEL_FREQUENCY_2454] = {.frequency = 2454, .whitening = 0xD8},
-	[BLE_CHANNEL_FREQUENCY_2456] = {.frequency = 2456, .whitening = 0xD9},
-	[BLE_CHANNEL_FREQUENCY_2458] = {.frequency = 2458, .whitening = 0xDA},
-	[BLE_CHANNEL_FREQUENCY_2460] = {.frequency = 2460, .whitening = 0xDB},
-	[BLE_CHANNEL_FREQUENCY_2462] = {.frequency = 2462, .whitening = 0xDC},
-	[BLE_CHANNEL_FREQUENCY_2464] = {.frequency = 2464, .whitening = 0xDD},
-	[BLE_CHANNEL_FREQUENCY_2466] = {.frequency = 2466, .whitening = 0xDE},
-	[BLE_CHANNEL_FREQUENCY_2468] = {.frequency = 2468, .whitening = 0xDF},
-	[BLE_CHANNEL_FREQUENCY_2470] = {.frequency = 2470, .whitening = 0xE0},
-	[BLE_CHANNEL_FREQUENCY_2472] = {.frequency = 2472, .whitening = 0xE1},
-	[BLE_CHANNEL_FREQUENCY_2474] = {.frequency = 2474, .whitening = 0xE2},
-	[BLE_CHANNEL_FREQUENCY_2476] = {.frequency = 2476, .whitening = 0xE3},
-	[BLE_CHANNEL_FREQUENCY_2478] = {.frequency = 2478, .whitening = 0xE4},
-	[BLE_CHANNEL_FREQUENCY_2480] = {.frequency = 2480, .whitening = 0xE7}};
+static const rf_frequency_table_entry_t channel_frequency_table[RF_CHANNEL_FREQUENCY_COUNT] = {
+	[RF_CHANNEL_FREQUENCY_2402] = {.frequency = 2402, .whitening = 0xE5},
+	[RF_CHANNEL_FREQUENCY_2404] = {.frequency = 2404, .whitening = 0xC0},
+	[RF_CHANNEL_FREQUENCY_2406] = {.frequency = 2406, .whitening = 0xC1},
+	[RF_CHANNEL_FREQUENCY_2408] = {.frequency = 2408, .whitening = 0xC2},
+	[RF_CHANNEL_FREQUENCY_2410] = {.frequency = 2410, .whitening = 0xC3},
+	[RF_CHANNEL_FREQUENCY_2412] = {.frequency = 2412, .whitening = 0xC4},
+	[RF_CHANNEL_FREQUENCY_2414] = {.frequency = 2414, .whitening = 0xC5},
+	[RF_CHANNEL_FREQUENCY_2416] = {.frequency = 2416, .whitening = 0xC6},
+	[RF_CHANNEL_FREQUENCY_2418] = {.frequency = 2418, .whitening = 0xC7},
+	[RF_CHANNEL_FREQUENCY_2420] = {.frequency = 2420, .whitening = 0xC8},
+	[RF_CHANNEL_FREQUENCY_2422] = {.frequency = 2422, .whitening = 0xC9},
+	[RF_CHANNEL_FREQUENCY_2424] = {.frequency = 2424, .whitening = 0xCA},
+	[RF_CHANNEL_FREQUENCY_2426] = {.frequency = 2426, .whitening = 0xE6},
+	[RF_CHANNEL_FREQUENCY_2428] = {.frequency = 2428, .whitening = 0xCB},
+	[RF_CHANNEL_FREQUENCY_2430] = {.frequency = 2430, .whitening = 0xCC},
+	[RF_CHANNEL_FREQUENCY_2432] = {.frequency = 2432, .whitening = 0xCD},
+	[RF_CHANNEL_FREQUENCY_2434] = {.frequency = 2434, .whitening = 0xCE},
+	[RF_CHANNEL_FREQUENCY_2436] = {.frequency = 2436, .whitening = 0xCF},
+	[RF_CHANNEL_FREQUENCY_2438] = {.frequency = 2438, .whitening = 0xD0},
+	[RF_CHANNEL_FREQUENCY_2440] = {.frequency = 2440, .whitening = 0xD1},
+	[RF_CHANNEL_FREQUENCY_2442] = {.frequency = 2442, .whitening = 0xD2},
+	[RF_CHANNEL_FREQUENCY_2444] = {.frequency = 2444, .whitening = 0xD3},
+	[RF_CHANNEL_FREQUENCY_2446] = {.frequency = 2446, .whitening = 0xD4},
+	[RF_CHANNEL_FREQUENCY_2448] = {.frequency = 2448, .whitening = 0xD5},
+	[RF_CHANNEL_FREQUENCY_2450] = {.frequency = 2450, .whitening = 0xD6},
+	[RF_CHANNEL_FREQUENCY_2452] = {.frequency = 2452, .whitening = 0xD7},
+	[RF_CHANNEL_FREQUENCY_2454] = {.frequency = 2454, .whitening = 0xD8},
+	[RF_CHANNEL_FREQUENCY_2456] = {.frequency = 2456, .whitening = 0xD9},
+	[RF_CHANNEL_FREQUENCY_2458] = {.frequency = 2458, .whitening = 0xDA},
+	[RF_CHANNEL_FREQUENCY_2460] = {.frequency = 2460, .whitening = 0xDB},
+	[RF_CHANNEL_FREQUENCY_2462] = {.frequency = 2462, .whitening = 0xDC},
+	[RF_CHANNEL_FREQUENCY_2464] = {.frequency = 2464, .whitening = 0xDD},
+	[RF_CHANNEL_FREQUENCY_2466] = {.frequency = 2466, .whitening = 0xDE},
+	[RF_CHANNEL_FREQUENCY_2468] = {.frequency = 2468, .whitening = 0xDF},
+	[RF_CHANNEL_FREQUENCY_2470] = {.frequency = 2470, .whitening = 0xE0},
+	[RF_CHANNEL_FREQUENCY_2472] = {.frequency = 2472, .whitening = 0xE1},
+	[RF_CHANNEL_FREQUENCY_2474] = {.frequency = 2474, .whitening = 0xE2},
+	[RF_CHANNEL_FREQUENCY_2476] = {.frequency = 2476, .whitening = 0xE3},
+	[RF_CHANNEL_FREQUENCY_2478] = {.frequency = 2478, .whitening = 0xE4},
+	[RF_CHANNEL_FREQUENCY_2480] = {.frequency = 2480, .whitening = 0xE7}};
 
 static const RF_TxPowerTable_Entry RF_BLE_txPowerTable[RADIO_TX_POWER_TABLE_SIZE] = {
 	[RADIO_TX_POWER_m20] =
@@ -423,14 +476,11 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
 	.polynomial = 0,
 	.iv = 0,
 	.channel = 0,
+	.phy = 0,
 
 	.rf.rx = {.entry = NULL, .queue = {NULL}, .buffer = {0}},
 	.rf.tx = {.entry = NULL, .queue = {NULL}, .buffer = {0}},
-	.rf.rat =
-		{
-			.hcto_compare = {0},
-			.hcto_handle = 0,
-		},
+	.rf.rat = {.hcto_compare = {0}, .hcto_handle = 0},
 	.rf.cmd = {
 		.fs = {.commandNo = CMD_FS,
 		       .status = IDLE,
@@ -903,8 +953,8 @@ static void isr_radio(RF_Handle handle, RF_CmdHandle command_handle, RF_EventMas
 				timestamp |= data[data_index++] << 16;
 				timestamp |= data[data_index++] << 24;
 
-				LOG_DBG("| ad %u | ds %u | crc 0x%08X | rssi %i | ts %u |", a_d,
-					data_size, crc, this_rssi, timestamp);
+				LOG_DBG("rx_entry | ad %u | ds %u | crc 0x%08X | rssi %i | ts %u |",
+					a_d, data_size, crc, this_rssi, timestamp);
 
 				rtc_start = timestamp;
 
@@ -963,12 +1013,15 @@ void radio_isr_set(radio_isr_cb_t cb, void *param)
 	irq_enable(LL_RADIO_IRQn);
 }
 
-static void rat_deferred_hcto_callback(RF_Handle h, RF_RatHandle rh, RF_EventMask e,
-				       uint32_t compareCaptureTime)
+static void rat_deferred_hcto_callback(RF_Handle handle, RF_RatHandle rat_handle,
+				       RF_EventMask event_mask, uint32_t compare_capture_time)
 {
 	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
-	RF_cancelCmd(rfBleHandle, driver_data->rf.cmd.active_handle, RF_ABORT_GRACEFULLY);
-	driver_data->rf.cmd.active_handle = -1;
+	if (rat_handle == driver_data->rf.rat.hcto_handle) {
+		LOG_DBG("rf_op timeout - cancel");
+		RF_cancelCmd(rfBleHandle, driver_data->rf.cmd.active_handle, RF_ABORT_GRACEFULLY);
+		driver_data->rf.cmd.active_handle = -1;
+	}
 }
 
 static void ble_cc13xx_cc26xx_data_init(void)
@@ -1032,8 +1085,7 @@ void radio_setup(void)
 			      (RF_RadioSetup *)&driver_data->rf.cmd.ble5_radio_setup, &rfBleParams);
 	LL_ASSERT(rfBleHandle);
 
-	driver_data->rf.cmd.fs.frequency =
-		frequency_table[ble_cc13xx_cc26xx_data.channel].frequency;
+	driver_data->rf.cmd.fs.frequency = channel_frequency_table[driver_data->channel].frequency;
 	RF_runCmd(rfBleHandle, (RF_Op *)&driver_data->rf.cmd.fs, RF_PriorityNormal, NULL,
 		  RF_EventLastCmdDone);
 
@@ -1045,35 +1097,36 @@ void radio_setup(void)
 
 void radio_reset(void)
 {
+	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
+	RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
+
 	irq_disable(LL_RADIO_IRQn);
-
-#if defined(CONFIG_BT_CTLR_DF) && !defined(CONFIG_ZTEST)
-	radio_df_reset();
-#endif /* CONFIG_BT_CTLR_DF && !CONFIG_ZTEST */
-
-	// hal_radio_reset();
 }
 
 void radio_stop(void)
 {
-	// hal_radio_stop();
+	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
+	RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
 }
 
 void radio_phy_set(uint8_t phy, uint8_t flags)
 {
-	ARG_UNUSED(phy);
 	ARG_UNUSED(flags);
 
-	/* This function should set one of three modes:
-	 * - BLE 1 Mbps
-	 * - BLE 2 Mbps
-	 * - Coded BLE
-	 * We set this on radio_setup() function. There radio is
-	 * setup for DataRate of 1 Mbps.
-	 * For now this function does nothing. In the future it
-	 * may have to reset the radio
-	 * to the 2 Mbps (the only other mode supported by Vega radio).
-	 */
+	switch (phy) {
+	case BIT(1):
+		driver_data->phy = RF_PHY_2MBS;
+		break;
+
+	case BIT(2):
+		driver_data->phy = RF_PHY_CODED;
+		break;
+
+	case BIT(0):
+	default:
+		driver_data->phy = RF_PHY_1MBS;
+		break;
+	}
 }
 
 void radio_tx_power_set(int8_t power)
@@ -1091,7 +1144,7 @@ void radio_tx_power_max_set(void)
 void radio_freq_chan_set(uint32_t chan)
 {
 	LOG_DBG("%u", chan);
-	LL_ASSERT(chan < BLE_FREQUENCY_TABLE_SIZE);
+	LL_ASSERT(chan < RF_CHANNEL_COUNT);
 
 	driver_data->channel = chan;
 }
@@ -1143,11 +1196,13 @@ uint32_t radio_rx_chain_delay_get(uint8_t phy, uint8_t flags)
 
 void radio_rx_enable(void)
 {
+	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
 	radio_tmr_start_now(RADIO_TRX_RX);
 }
 
 void radio_tx_enable(void)
 {
+	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
 	radio_tmr_start_now(RADIO_TRX_TX);
 }
 
@@ -1405,6 +1460,7 @@ static uint32_t radio_tmr_start_hlp(uint8_t trx, uint32_t ticks_start, uint32_t 
 	/* Add function to check op type - allow any RF_Op? */
 	rfc_ble5RadioOp_t *ble_radio_op = (rfc_ble5RadioOp_t *)driver_data->rf.op;
 	ble_radio_op->channel = driver_data->channel;
+	ble_radio_op->phyMode.mainMode = driver_data->phy;
 	ble_radio_op->startTime = now + remainder;
 	ble_radio_op->startTrigger.triggerType = TRIG_ABSTIME;
 	ble_radio_op->startTrigger.pastTrig = true;
@@ -1467,9 +1523,13 @@ void radio_tmr_hcto_configure(uint32_t hcto)
 		return;
 	}
 
-	driver_data->rf.rat.hcto_compare.timeout = hcto;
+	RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
 
-	/* 0b1001..RX Stop @ T2 Timer Compare Match (EVENT_TMR = T2_CMP) */
+	driver_data->rf.rat.hcto_compare.timeout = cntr_cnt_get() + HAL_TICKER_US_TO_TICKS(hcto);
+	LOG_DBG("cntr %u (%uus) to %u (%uus)", cntr_cnt_get(),
+		HAL_TICKER_TICKS_TO_US(cntr_cnt_get()), driver_data->rf.rat.hcto_compare.timeout,
+		HAL_TICKER_TICKS_TO_US(driver_data->rf.rat.hcto_compare.timeout));
+
 	driver_data->rf.rat.hcto_handle =
 		RF_ratCompare(rfBleHandle, &driver_data->rf.rat.hcto_compare, NULL);
 }
