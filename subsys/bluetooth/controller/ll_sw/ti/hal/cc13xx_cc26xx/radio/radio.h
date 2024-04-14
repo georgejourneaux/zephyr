@@ -15,10 +15,11 @@
 #define RADIO_RF_EVENT_MASK_TX_DONE (RF_EventTxDone)
 
 #define RADIO_RF_EVENT_MASK_RX_DONE                                                                \
-	(RF_EventRxOk | RF_EventRxEmpty | RF_EventRxCtrl | RF_EventRxCtrlAck | RF_EventRxBufFull | \
-	 RF_EventRxEntryDone)
+	(RF_EventRxOk | RF_EventRxEmpty | RF_EventRxCtrl | RF_EventRxCtrlAck | RF_EventRxEntryDone)
 
-#define RADIO_RF_EVENT_MASK_CMD_DONE (RF_EventLastCmdDone)
+#define RADIO_RF_EVENT_MASK_CMD_DONE                                                               \
+	(RF_EventCmdDone | RF_EventLastCmdDone | RF_EventCmdCancelled | RF_EventCmdAborted |       \
+	 RF_EventCmdStopped)
 
 typedef enum RADIO_TRX {
 	RADIO_TRX_RX = 0,
@@ -123,7 +124,7 @@ void radio_whiten_iv_set(uint32_t iv);
 void radio_aa_set(const uint8_t *aa);
 void radio_pkt_configure(uint8_t bits_len, uint8_t max_len, uint8_t flags);
 void radio_pkt_rx_set(void *rx_packet);
-void radio_pkt_tx_set(RF_Op *tx_packet);
+dataQueue_t *radio_pkt_tx_set(RF_Op *tx_packet);
 uint32_t radio_tx_ready_delay_get(uint8_t phy, uint8_t flags);
 uint32_t radio_tx_chain_delay_get(uint8_t phy, uint8_t flags);
 uint32_t radio_rx_ready_delay_get(uint8_t phy, uint8_t flags);

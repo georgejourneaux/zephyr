@@ -114,11 +114,13 @@ typedef enum BLE_CHANNEL_FREQUENCY {
 } ble_frequency_table_entry_t;
 
 typedef struct RF_RX_DATA {
+	rfc_dataEntry_t *entry;
 	dataQueue_t queue;
 	uint8_t buffer[RF_QUEUE_DATA_ENTRY_BUFFER_SIZE(RF_RX_ENTRY_BUFFER_SIZE, RF_RX_BUFFER_SIZE)]
 		__attribute__((aligned(4)));
 } rf_rx_data_t;
 typedef struct rf_tx_data {
+	rfc_dataEntry_t *entry;
 	dataQueue_t queue;
 	uint8_t buffer[RF_QUEUE_DATA_ENTRY_BUFFER_SIZE(RF_TX_ENTRY_BUFFER_SIZE, RF_TX_BUFFER_SIZE)]
 		__attribute__((aligned(4)));
@@ -422,8 +424,8 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
 	.iv = 0,
 	.channel = 0,
 
-	.rf.rx = {.queue = {NULL}, .buffer = {0}},
-	.rf.tx = {.queue = {NULL}, .buffer = {0}},
+	.rf.rx = {.entry = NULL, .queue = {NULL}, .buffer = {0}},
+	.rf.tx = {.entry = NULL, .queue = {NULL}, .buffer = {0}},
 	.rf.rat =
 		{
 			.hcto_compare = {0},
@@ -856,8 +858,8 @@ static void isr_radio(RF_Handle handle, RF_CmdHandle command_handle, RF_EventMas
 	DEBUG_RADIO_ISR(1);
 
 	RF_Op *rf_op = RF_getCmdOp(rfBleHandle, command_handle);
-	LOG_DBG("%s (0x%04X) %s (0x%04X) event %llu", commandNo_to_string(rf_op->commandNo),
-		rf_op->commandNo, ble_status_to_string(rf_op->status), rf_op->status, event_mask);
+	LOG_DBG("%s (0x%04X) %s (0x%04X)", commandNo_to_string(rf_op->commandNo), rf_op->commandNo,
+		ble_status_to_string(rf_op->status), rf_op->status);
 	dbg_event(event_mask);
 
 	if (event_mask & RADIO_RF_EVENT_MASK_TX_DONE) {
@@ -871,38 +873,54 @@ static void isr_radio(RF_Handle handle, RF_CmdHandle command_handle, RF_EventMas
 		RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
 
 		rfc_dataEntryPointer_t *rx_entry =
-			(rfc_dataEntryPointer_t *)driver_data->rf.rx.queue.pCurrEntry;
+			(rfc_dataEntryPointer_t *)driver_data->rf.rx.entry;
 
-		size_t offs = rx_entry->pData[0];
-		uint8_t *data = &rx_entry->pData[1];
+		if (rx_entry->status == DATA_ENTRY_FINISHED) {
+			if (rx_entry->config.type == DATA_ENTRY_TYPE_PTR) {
+				size_t offs = rx_entry->pData[0];
+				uint8_t *data = &rx_entry->pData[1];
 
-		ratmr_t timestamp = 0;
-		timestamp |= data[--offs] << 24;
-		timestamp |= data[--offs] << 16;
-		timestamp |= data[--offs] << 8;
-		timestamp |= data[--offs] << 0;
+				ratmr_t timestamp = 0;
+				timestamp |= data[--offs] << 24;
+				timestamp |= data[--offs] << 16;
+				timestamp |= data[--offs] << 8;
+				timestamp |= data[--offs] << 0;
 
-		rssi = (int8_t)data[--offs];
+				rssi = (int8_t)data[--offs];
 
-		uint32_t crc = 0;
-		crc |= data[--offs] << 16;
-		crc |= data[--offs] << 8;
-		crc |= data[--offs] << 0;
-		crc_valid = true;
+				uint32_t crc = 0;
+				crc |= data[--offs] << 16;
+				crc |= data[--offs] << 8;
+				crc |= data[--offs] << 0;
+				crc_valid = true;
 
-		size_t len = offs + 1;
+				size_t len = offs + 1;
 
-		rtc_start = timestamp;
+				rtc_start = timestamp;
 
-		/* Add to AA time, PDU + CRC time */
-		isr_timer_end = rtc_start + HAL_TICKER_US_TO_TICKS(len + sizeof(crc - 1));
+				/* Add to AA time, PDU + CRC time */
+				isr_timer_end =
+					rtc_start + HAL_TICKER_US_TO_TICKS(len + sizeof(crc - 1));
 
-		if (timer_aa_save) {
-			timer_aa = isr_timer_aa;
-		}
+				if (timer_aa_save) {
+					timer_aa = isr_timer_aa;
+				}
 
-		if (timer_end_save) {
-			timer_end = isr_timer_end; /* from pkt_rx() */
+				if (timer_end_save) {
+					timer_end = isr_timer_end; /* from pkt_rx() */
+				}
+
+				if (driver_data->lll_rx_pdu != NULL) {
+					memcpy(driver_data->lll_rx_pdu, rx_entry->pData, len);
+				}
+			}
+			driver_data->rf.rx.entry = RFQueue_nextEntry(driver_data->rf.rx.entry);
+		} else {
+			if ((event_mask & RF_EventRxEmpty) &&
+			    (rx_entry->status == DATA_ENTRY_PENDING)) {
+				LOG_WRN("rf_op might be missing it's rx dataQueue_t");
+			}
+			event_mask &= ~(RADIO_RF_EVENT_MASK_RX_DONE);
 		}
 	}
 
@@ -944,13 +962,13 @@ static void rat_deferred_hcto_callback(RF_Handle h, RF_RatHandle rh, RF_EventMas
 
 static void ble_cc13xx_cc26xx_data_init(void)
 {
-	RFQueue_defineQueue(&driver_data->rf.rx.queue, driver_data->rf.rx.buffer,
-			    sizeof(driver_data->rf.rx.buffer), RF_RX_ENTRY_BUFFER_SIZE,
-			    RF_RX_BUFFER_SIZE);
+	driver_data->rf.rx.entry = RFQueue_defineQueue(
+		&driver_data->rf.rx.queue, driver_data->rf.rx.buffer,
+		sizeof(driver_data->rf.rx.buffer), RF_RX_ENTRY_BUFFER_SIZE, RF_RX_BUFFER_SIZE);
 
-	RFQueue_defineQueue(&driver_data->rf.tx.queue, driver_data->rf.tx.buffer,
-			    sizeof(driver_data->rf.tx.buffer), RF_TX_ENTRY_BUFFER_SIZE,
-			    RF_TX_BUFFER_SIZE);
+	driver_data->rf.tx.entry = RFQueue_defineQueue(
+		&driver_data->rf.tx.queue, driver_data->rf.tx.buffer,
+		sizeof(driver_data->rf.tx.buffer), RF_TX_ENTRY_BUFFER_SIZE, RF_TX_BUFFER_SIZE);
 
 	RF_RatConfigCompare_init((RF_RatConfigCompare *)&driver_data->rf.rat.hcto_compare);
 	driver_data->rf.rat.hcto_compare.callback = rat_deferred_hcto_callback;
@@ -1086,9 +1104,10 @@ void radio_pkt_rx_set(void *rx_packet)
 	driver_data->lll_rx_pdu = (uint8_t *)rx_packet;
 }
 
-void radio_pkt_tx_set(RF_Op *tx_packet)
+dataQueue_t *radio_pkt_tx_set(RF_Op *tx_packet)
 {
 	driver_data->rf.op = tx_packet;
+	return &driver_data->rf.rx.queue;
 }
 
 uint32_t radio_tx_ready_delay_get(uint8_t phy, uint8_t flags)
@@ -1133,6 +1152,7 @@ void radio_disable(void)
 		   RF_EventLastCmdDone);
 
 	driver_data->rf.op = NULL;
+	driver_data->lll_rx_pdu = NULL;
 }
 
 void radio_status_reset(void)
@@ -1230,6 +1250,7 @@ void radio_switch_complete_and_disable(void)
 {
 	RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
 	driver_data->rf.op = NULL;
+	driver_data->lll_rx_pdu = NULL;
 }
 
 void radio_rssi_measure(void)
@@ -1360,7 +1381,13 @@ static uint32_t radio_tmr_start_hlp(uint8_t trx, uint32_t ticks_start, uint32_t 
 	}
 
 	if (driver_data->rf.op == NULL) {
-		LOG_DBG("no cmd");
+		LOG_WRN("tx_packet not set");
+		return remainder;
+	} else if (driver_data->lll_rx_pdu == NULL) {
+		LOG_WRN("rx_packet not set");
+		return remainder;
+	} else if (RFQueue_isFull(&driver_data->rf.rx.queue, driver_data->rf.rx.entry)) {
+		LOG_WRN("rx queue full");
 		return remainder;
 	}
 

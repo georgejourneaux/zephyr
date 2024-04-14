@@ -7,19 +7,21 @@
 #include DeviceFamily_constructPath(driverlib/rf_data_entry.h)
 /* clang-format on */
 
-uint8_t RFQueue_nextEntry(dataQueue_t *dataQueue)
+bool RFQueue_isFull(dataQueue_t *queue, rfc_dataEntry_t *current_entry)
 {
-	/* Set status to pending */
-	((rfc_dataEntryGeneral_t *)dataQueue->pCurrEntry)->status = DATA_ENTRY_PENDING;
-
-	/* Move read entry pointer to next entry */
-	dataQueue->pCurrEntry = ((rfc_dataEntryGeneral_t *)dataQueue->pCurrEntry)->pNextEntry;
-
-	return (((rfc_dataEntryGeneral_t *)dataQueue->pCurrEntry)->status);
+	return ((current_entry->status != DATA_ENTRY_PENDING) &&
+		(current_entry == ((rfc_dataEntry_t *)queue->pCurrEntry)->pNextEntry));
 }
 
-uint8_t RFQueue_defineQueue(dataQueue_t *dataQueue, uint8_t *buf, uint16_t buf_len,
-			    uint8_t numEntries, uint16_t length)
+rfc_dataEntry_t *RFQueue_nextEntry(rfc_dataEntry_t *entry)
+{
+	/* Set status to pending */
+	entry->status = DATA_ENTRY_PENDING;
+	return (entry->pNextEntry);
+}
+
+rfc_dataEntry_t *RFQueue_defineQueue(dataQueue_t *dataQueue, uint8_t *buf, uint16_t buf_len,
+				     uint8_t numEntries, uint16_t length)
 {
 
 	if (buf_len < (numEntries * (length + RF_QUEUE_DATA_ENTRY_HEADER_SIZE +
@@ -51,5 +53,5 @@ uint8_t RFQueue_defineQueue(dataQueue_t *dataQueue, uint8_t *buf, uint16_t buf_l
 	dataQueue->pCurrEntry = first_entry;
 	dataQueue->pLastEntry = NULL;
 
-	return (0);
+	return ((rfc_dataEntry_t *)dataQueue->pCurrEntry);
 }

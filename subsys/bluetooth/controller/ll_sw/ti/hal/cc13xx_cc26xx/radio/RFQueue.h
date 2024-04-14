@@ -1,6 +1,8 @@
 #ifndef RF_QUEUE_H
 #define RF_QUEUE_H
 
+#include <stdbool.h>
+
 /* clang-format off */
 #include <ti/devices/DeviceFamily.h>
 #include DeviceFamily_constructPath(driverlib/rf_data_entry.h)
@@ -15,8 +17,9 @@
 	(numEntries *                                                                              \
 	 (RF_QUEUE_DATA_ENTRY_HEADER_SIZE + dataSize + RF_QUEUE_QUEUE_ALIGN_PADDING(dataSize)))
 
-uint8_t RFQueue_nextEntry(dataQueue_t *queue);
-uint8_t RFQueue_defineQueue(dataQueue_t *queue, uint8_t *buf, uint16_t buf_len, uint8_t numEntries,
-			    uint16_t length);
+bool RFQueue_isFull(dataQueue_t *queue, rfc_dataEntry_t *current_entry);
+rfc_dataEntry_t *RFQueue_nextEntry(rfc_dataEntry_t *current_entry);
+rfc_dataEntry_t *RFQueue_defineQueue(dataQueue_t *queue, uint8_t *buf, uint16_t buf_len,
+				     uint8_t numEntries, uint16_t length);
 
 #endif /* RF_QUEUE_H */

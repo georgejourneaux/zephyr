@@ -427,7 +427,7 @@ static struct pdu_adv *chan_prepare(struct lll_adv *lll)
 	struct node_rx_pdu *node_rx = ull_pdu_rx_alloc_peek(1);
 	LL_ASSERT(node_rx);
 
-	radio_pkt_tx_set((RF_Op *)&cmd_ble5_adv);
+	cmd_ble5_adv.pParams->pRxQ = radio_pkt_tx_set((RF_Op *)&cmd_ble5_adv);
 	radio_pkt_rx_set(node_rx->pdu);
 	radio_isr_set(isr_adv, lll);
 
