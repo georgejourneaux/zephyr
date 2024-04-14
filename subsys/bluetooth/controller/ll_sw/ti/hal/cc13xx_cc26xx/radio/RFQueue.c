@@ -7,51 +7,53 @@
 #include DeviceFamily_constructPath(driverlib/rf_data_entry.h)
 /* clang-format on */
 
-bool RFQueue_isFull(dataQueue_t *queue, rfc_dataEntry_t *current_entry)
+bool RFQueue_isFull(dataQueue_t *queue, rfc_dataEntryGeneral_t *current_entry)
 {
 	return ((current_entry->status != DATA_ENTRY_PENDING) &&
-		(current_entry == ((rfc_dataEntry_t *)queue->pCurrEntry)->pNextEntry));
+		((uint8_t *)current_entry ==
+		 ((rfc_dataEntryGeneral_t *)queue->pCurrEntry)->pNextEntry));
 }
 
-rfc_dataEntry_t *RFQueue_nextEntry(rfc_dataEntry_t *entry)
+rfc_dataEntryGeneral_t *RFQueue_nextEntry(rfc_dataEntryGeneral_t *entry)
 {
 	/* Set status to pending */
 	entry->status = DATA_ENTRY_PENDING;
-	return (entry->pNextEntry);
+	return ((rfc_dataEntryGeneral_t *)entry->pNextEntry);
 }
 
-rfc_dataEntry_t *RFQueue_defineQueue(dataQueue_t *dataQueue, uint8_t *buf, uint16_t buf_len,
-				     uint8_t numEntries, uint16_t length)
+rfc_dataEntryGeneral_t *RFQueue_defineQueue(dataQueue_t *queue, uint8_t *buffer,
+					    uint16_t buffer_size, uint8_t number_of_entries,
+					    uint16_t length)
 {
 
-	if (buf_len < (numEntries * (length + RF_QUEUE_DATA_ENTRY_HEADER_SIZE +
-				     RF_QUEUE_QUEUE_ALIGN_PADDING(length)))) {
+	if (buffer_size < RF_QUEUE_DATA_ENTRY_BUFFER_SIZE(number_of_entries, length)) {
 		/* queue does not fit into buffer */
-		return (1);
+		return NULL;
 	}
 
 	/* Padding needed for 4-byte alignment? */
-	uint8_t pad = 4 - ((length + RF_QUEUE_DATA_ENTRY_HEADER_SIZE) % 4);
+	uint8_t pad = RF_QUEUE_QUEUE_ALIGN_PADDING(length);
+
+	uint16_t entry_size = (RF_QUEUE_DATA_ENTRY_HEADER_SIZE + length + pad);
 
 	/* Set the Data Entries common configuration */
-	uint8_t *first_entry = buf;
-	int i;
-	for (i = 0; i < numEntries; i++) {
-		buf = first_entry + i * (RF_QUEUE_DATA_ENTRY_HEADER_SIZE + length + pad);
-		((rfc_dataEntry_t *)buf)->status = DATA_ENTRY_PENDING; // Pending - starting state
-		((rfc_dataEntry_t *)buf)->config.type = DATA_ENTRY_TYPE_GEN; // General Data Entry
-		((rfc_dataEntry_t *)buf)->config.lenSz = 0; // No length indicator byte in data
-		((rfc_dataEntry_t *)buf)->length = length;  // Total length of data field
+	uint8_t *first_entry = buffer;
+	rfc_dataEntryGeneral_t *entry = (rfc_dataEntryGeneral_t *)buffer;
+	for (uint8_t entry_index = 0; entry_index < number_of_entries; entry_index++) {
+		entry = (rfc_dataEntryGeneral_t *)(first_entry + (entry_index * entry_size));
+		entry->status = DATA_ENTRY_PENDING;       // Pending - starting state
+		entry->config.type = DATA_ENTRY_TYPE_GEN; // General Data Entry
+		entry->config.lenSz = 0;                  // No length indicator byte in data
+		entry->length = length;                   // Total length of data field
 
-		((rfc_dataEntryGeneral_t *)buf)->pNextEntry =
-			&(((rfc_dataEntryGeneral_t *)buf)->data) + length + pad;
+		entry->pNextEntry = &entry->data + length + pad;
 	}
 	/* Make circular Last.Next -> First */
-	((rfc_dataEntry_t *)buf)->pNextEntry = first_entry;
+	entry->pNextEntry = first_entry;
 
 	/* Create Data Entry Queue and configure for circular buffer Data Entries */
-	dataQueue->pCurrEntry = first_entry;
-	dataQueue->pLastEntry = NULL;
+	queue->pCurrEntry = first_entry;
+	queue->pLastEntry = NULL;
 
-	return ((rfc_dataEntry_t *)dataQueue->pCurrEntry);
+	return ((rfc_dataEntryGeneral_t **)queue->pCurrEntry);
 }

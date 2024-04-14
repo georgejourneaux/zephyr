@@ -114,13 +114,13 @@ typedef enum BLE_CHANNEL_FREQUENCY {
 } ble_frequency_table_entry_t;
 
 typedef struct RF_RX_DATA {
-	rfc_dataEntry_t *entry;
+	rfc_dataEntryGeneral_t *entry;
 	dataQueue_t queue;
 	uint8_t buffer[RF_QUEUE_DATA_ENTRY_BUFFER_SIZE(RF_RX_ENTRY_BUFFER_SIZE, RF_RX_BUFFER_SIZE)]
 		__attribute__((aligned(4)));
 } rf_rx_data_t;
 typedef struct rf_tx_data {
-	rfc_dataEntry_t *entry;
+	rfc_dataEntryGeneral_t *entry;
 	dataQueue_t queue;
 	uint8_t buffer[RF_QUEUE_DATA_ENTRY_BUFFER_SIZE(RF_TX_ENTRY_BUFFER_SIZE, RF_TX_BUFFER_SIZE)]
 		__attribute__((aligned(4)));
@@ -872,35 +872,45 @@ static void isr_radio(RF_Handle handle, RF_CmdHandle command_handle, RF_EventMas
 		/* Disable Rx timeout */
 		RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
 
-		rfc_dataEntryPointer_t *rx_entry =
-			(rfc_dataEntryPointer_t *)driver_data->rf.rx.entry;
+		if (driver_data->rf.rx.entry->status == DATA_ENTRY_FINISHED) {
+			if (driver_data->rf.rx.entry->config.type == DATA_ENTRY_TYPE_GEN) {
+				uint8_t *data = &driver_data->rf.rx.entry->data;
 
-		if (rx_entry->status == DATA_ENTRY_FINISHED) {
-			if (rx_entry->config.type == DATA_ENTRY_TYPE_PTR) {
-				size_t offs = rx_entry->pData[0];
-				uint8_t *data = &rx_entry->pData[1];
-
-				ratmr_t timestamp = 0;
-				timestamp |= data[--offs] << 24;
-				timestamp |= data[--offs] << 16;
-				timestamp |= data[--offs] << 8;
-				timestamp |= data[--offs] << 0;
-
-				rssi = (int8_t)data[--offs];
+				/* - Advertisement/data PDU header
+				 * - PDU body length (advert or data)
+				 * - PDU body
+				 * - CRC
+				 * - RSSI
+				 * - //Channel (and bIgnore, bCrcErr)
+				 * - //PHY mode (byte not present if ble4_cmd)
+				 * - Timestamp (32 bit)
+				 */
+				uint8_t a_d = data[0];
+				uint16_t data_size = data[1] + 2;
+				uint16_t data_index = data_size;
 
 				uint32_t crc = 0;
-				crc |= data[--offs] << 16;
-				crc |= data[--offs] << 8;
-				crc |= data[--offs] << 0;
+				crc |= data[data_index++] << 0;
+				crc |= data[data_index++] << 8;
+				crc |= data[data_index++] << 16;
 				crc_valid = true;
 
-				size_t len = offs + 1;
+				int8_t this_rssi = data[data_index++];
+
+				ratmr_t timestamp = 0;
+				timestamp |= data[data_index++] << 0;
+				timestamp |= data[data_index++] << 8;
+				timestamp |= data[data_index++] << 16;
+				timestamp |= data[data_index++] << 24;
+
+				LOG_DBG("| ad %u | ds %u | crc 0x%08X | rssi %i | ts %u |", a_d,
+					data_size, crc, this_rssi, timestamp);
 
 				rtc_start = timestamp;
 
 				/* Add to AA time, PDU + CRC time */
-				isr_timer_end =
-					rtc_start + HAL_TICKER_US_TO_TICKS(len + sizeof(crc - 1));
+				isr_timer_end = rtc_start +
+						HAL_TICKER_US_TO_TICKS(data_size + sizeof(crc - 1));
 
 				if (timer_aa_save) {
 					timer_aa = isr_timer_aa;
@@ -911,13 +921,14 @@ static void isr_radio(RF_Handle handle, RF_CmdHandle command_handle, RF_EventMas
 				}
 
 				if (driver_data->lll_rx_pdu != NULL) {
-					memcpy(driver_data->lll_rx_pdu, rx_entry->pData, len);
+					memcpy(driver_data->lll_rx_pdu, data, data_size);
 				}
 			}
+
 			driver_data->rf.rx.entry = RFQueue_nextEntry(driver_data->rf.rx.entry);
 		} else {
 			if ((event_mask & RF_EventRxEmpty) &&
-			    (rx_entry->status == DATA_ENTRY_PENDING)) {
+			    (driver_data->rf.rx.entry->status == DATA_ENTRY_PENDING)) {
 				LOG_WRN("rf_op might be missing it's rx dataQueue_t");
 			}
 			event_mask &= ~(RADIO_RF_EVENT_MASK_RX_DONE);
