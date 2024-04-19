@@ -571,7 +571,7 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
 			},
 		._ble_generic_rx_param =
 			{
-				.pRxQ = NULL,
+				.pRxQ = &ble_cc13xx_cc26xx_data.rf.rx.queue,
 				.rxConfig.bAutoFlushIgnored = RADIO_RX_CONFIG_AUTO_FLUSH_IGNORED,
 				.rxConfig.bAutoFlushCrcErr = RADIO_RX_CONFIG_AUTO_FLUSH_CRC_ERR,
 				.rxConfig.bAutoFlushEmpty = RADIO_RX_CONFIG_AUTO_FLUSH_EMPTY,
@@ -907,7 +907,7 @@ static void isr_radio(RF_Handle handle, RF_CmdHandle command_handle, RF_EventMas
 {
 	DEBUG_RADIO_ISR(1);
 
-	RF_Op *rf_op = RF_getCmdOp(rfBleHandle, command_handle);
+	RF_Op *rf_op = RF_getCmdOp(handle, command_handle);
 	LOG_DBG("%s (0x%04X) %s (0x%04X)", commandNo_to_string(rf_op->commandNo), rf_op->commandNo,
 		ble_status_to_string(rf_op->status), rf_op->status);
 	dbg_event(event_mask);
@@ -926,7 +926,7 @@ static void isr_radio(RF_Handle handle, RF_CmdHandle command_handle, RF_EventMas
 			if (driver_data->rf.rx.entry->config.type == DATA_ENTRY_TYPE_GEN) {
 				uint8_t *data = &driver_data->rf.rx.entry->data;
 
-				/* - Advertisement/data PDU header
+				/* - PDU header
 				 * - PDU body length (advert or data)
 				 * - PDU body
 				 * - CRC
@@ -935,9 +935,14 @@ static void isr_radio(RF_Handle handle, RF_CmdHandle command_handle, RF_EventMas
 				 * - //PHY mode (byte not present if ble4_cmd)
 				 * - Timestamp (32 bit)
 				 */
-				uint8_t a_d = data[0];
-				uint16_t data_size = data[1] + 2;
-				uint16_t data_index = data_size;
+				uint16_t data_index = 0;
+				uint8_t a_d = data[data_index++];
+				uint16_t data_size = data[data_index++] + 2;
+
+				if (driver_data->lll_rx_pdu != NULL) {
+					memcpy(driver_data->lll_rx_pdu, data, data_size);
+				}
+				data_index += data_size - 2;
 
 				uint32_t crc = 0;
 				crc |= data[data_index++] << 0;
@@ -953,8 +958,13 @@ static void isr_radio(RF_Handle handle, RF_CmdHandle command_handle, RF_EventMas
 				timestamp |= data[data_index++] << 16;
 				timestamp |= data[data_index++] << 24;
 
-				LOG_DBG("rx_entry | ad %u | ds %u | crc 0x%08X | rssi %i | ts %u |",
+				LOG_WRN("rx_entry | ad %u | ds %u | crc 0x%08X | rssi %i | ts %u |",
 					a_d, data_size, crc, this_rssi, timestamp);
+				struct pdu_adv *pdu_adv = (struct pdu_adv *)data;
+				LOG_WRN("pdu | type %u | rfu %u | ch %u | tx %u | rx %u | len %u |",
+					pdu_adv->type, pdu_adv->rfu, pdu_adv->chan_sel,
+					pdu_adv->tx_addr, pdu_adv->rx_addr, pdu_adv->len);
+				LOG_HEXDUMP_WRN(data, data_size, "RX");
 
 				rtc_start = timestamp;
 
@@ -968,10 +978,6 @@ static void isr_radio(RF_Handle handle, RF_CmdHandle command_handle, RF_EventMas
 
 				if (timer_end_save) {
 					timer_end = isr_timer_end; /* from pkt_rx() */
-				}
-
-				if (driver_data->lll_rx_pdu != NULL) {
-					memcpy(driver_data->lll_rx_pdu, data, data_size);
 				}
 			}
 
@@ -1159,19 +1165,19 @@ void radio_aa_set(const uint8_t *aa)
 	driver_data->access_address = *(uint32_t *)aa;
 }
 
-void radio_pkt_configure(uint8_t bits_len, uint8_t max_len, uint8_t flags)
-{
-}
-
 void radio_pkt_rx_set(void *rx_packet)
 {
 	driver_data->lll_rx_pdu = (uint8_t *)rx_packet;
 }
 
-dataQueue_t *radio_pkt_tx_set(RF_Op *tx_packet)
+dataQueue_t *radio_get_rf_data_queue(void)
 {
-	driver_data->rf.op = tx_packet;
 	return &driver_data->rf.rx.queue;
+}
+
+rfc_CMD_BLE5_GENERIC_RX_t *radio_get_rf_generic_rx(void)
+{
+	return &driver_data->rf.cmd.ble5_generic_rx;
 }
 
 uint32_t radio_tx_ready_delay_get(uint8_t phy, uint8_t flags)
@@ -1192,18 +1198,6 @@ uint32_t radio_rx_ready_delay_get(uint8_t phy, uint8_t flags)
 uint32_t radio_rx_chain_delay_get(uint8_t phy, uint8_t flags)
 {
 	return 16 + 2 * Rx_OVHD + RX_MARGIN + isr_latency + Rx_OVHD;
-}
-
-void radio_rx_enable(void)
-{
-	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
-	radio_tmr_start_now(RADIO_TRX_RX);
-}
-
-void radio_tx_enable(void)
-{
-	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
-	radio_tmr_start_now(RADIO_TRX_TX);
 }
 
 void radio_disable(void)
@@ -1361,19 +1355,6 @@ uint32_t radio_filter_match_get(void)
 	return 0;
 }
 
-void radio_bc_configure(uint32_t n)
-{
-}
-
-void radio_bc_status_reset(void)
-{
-}
-
-uint32_t radio_bc_has_match(void)
-{
-	return 0;
-}
-
 void radio_tmr_status_reset(void)
 {
 	timer_aa_save = 0;
@@ -1388,29 +1369,13 @@ void radio_tmr_rx_status_reset(void)
 {
 }
 
-void radio_tmr_tx_enable(void)
-{
-}
-
-void radio_tmr_rx_enable(void)
-{
-}
-
-void radio_tmr_tx_disable(void)
-{
-}
-
-void radio_tmr_rx_disable(void)
-{
-}
-
 void radio_tmr_tifs_set(uint32_t tifs)
 {
 	timer_tifs = tifs;
 }
 
 /* Start the radio after ticks_start (ticks) + remainder (us) time */
-static uint32_t radio_tmr_start_hlp(uint8_t trx, uint32_t ticks_start, uint32_t remainder)
+static uint32_t radio_tmr_start_hlp(RF_Op *rf_op, uint32_t ticks_start, uint32_t remainder)
 {
 	uint32_t now = cntr_cnt_get();
 
@@ -1432,32 +1397,18 @@ static uint32_t radio_tmr_start_hlp(uint8_t trx, uint32_t ticks_start, uint32_t 
 		return remainder;
 	}
 
-	if (trx == RADIO_TRX_TX) {
-		if (remainder <= MIN_CMD_TIME) {
-			remainder = 0;
-		}
-
-		timer_ready = remainder + tx_warmup;
-
-	} else {
-		if (remainder <= MIN_CMD_TIME) {
-			remainder = 0;
-		}
-		timer_ready = remainder + rx_warmup;
-	}
-
-	if (driver_data->rf.op == NULL) {
-		LOG_WRN("tx_packet not set");
-		return remainder;
-	} else if (driver_data->lll_rx_pdu == NULL) {
-		LOG_WRN("rx_packet not set");
-		return remainder;
-	} else if (RFQueue_isFull(&driver_data->rf.rx.queue, driver_data->rf.rx.entry)) {
+	if (RFQueue_isFull(&driver_data->rf.rx.queue, driver_data->rf.rx.entry)) {
 		LOG_WRN("rx queue full");
 		return remainder;
 	}
 
-	/* Add function to check op type - allow any RF_Op? */
+	if (remainder <= MIN_CMD_TIME) {
+		remainder = 0;
+	}
+	timer_ready = remainder;
+
+	driver_data->rf.op = rf_op;
+
 	rfc_ble5RadioOp_t *ble_radio_op = (rfc_ble5RadioOp_t *)driver_data->rf.op;
 	ble_radio_op->channel = driver_data->channel;
 	ble_radio_op->phyMode.mainMode = driver_data->phy;
@@ -1474,7 +1425,7 @@ static uint32_t radio_tmr_start_hlp(uint8_t trx, uint32_t ticks_start, uint32_t 
 	return remainder;
 }
 
-uint32_t radio_tmr_start(uint8_t trx, uint32_t ticks_start, uint32_t remainder)
+uint32_t radio_tmr_start(RF_Op *rf_op, uint32_t ticks_start, uint32_t remainder)
 {
 	if ((!(remainder / 1000000UL)) || (remainder & 0x80000000)) {
 		ticks_start--;
@@ -1482,28 +1433,28 @@ uint32_t radio_tmr_start(uint8_t trx, uint32_t ticks_start, uint32_t remainder)
 	}
 	remainder /= 1000000UL;
 
-	return radio_tmr_start_hlp(trx, ticks_start, remainder);
+	return radio_tmr_start_hlp(rf_op, ticks_start, remainder);
 }
 
-uint32_t radio_tmr_start_tick(uint8_t trx, uint32_t tick)
+uint32_t radio_tmr_start_tick(RF_Op *rf_op, uint32_t tick)
 {
 	/* Setup compare event with min. 1 us offset */
 	uint32_t remainder_us = 1;
 
-	return radio_tmr_start_hlp(trx, tick, remainder_us);
+	return radio_tmr_start_hlp(rf_op, tick, remainder_us);
 }
 
-uint32_t radio_tmr_start_us(uint8_t trx, uint32_t start_us)
+uint32_t radio_tmr_start_us(RF_Op *rf_op, uint32_t start_us)
 {
 	/* Setup compare event with min. 1 us offset */
 	uint32_t remainder_us = 1;
 
-	return radio_tmr_start_hlp(trx, HAL_TICKER_US_TO_TICKS(start_us), remainder_us);
+	return radio_tmr_start_hlp(rf_op, HAL_TICKER_US_TO_TICKS(start_us), remainder_us);
 }
 
-uint32_t radio_tmr_start_now(uint8_t trx)
+uint32_t radio_tmr_start_now(RF_Op *rf_op)
 {
-	return radio_tmr_start(trx, cntr_cnt_get(), 0);
+	return radio_tmr_start(rf_op, cntr_cnt_get(), 0);
 }
 
 uint32_t radio_tmr_start_get(void)

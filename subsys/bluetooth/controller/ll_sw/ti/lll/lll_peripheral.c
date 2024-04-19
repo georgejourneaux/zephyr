@@ -267,7 +267,8 @@ static int prepare_cb(struct lll_prepare_param *p)
 	ticks_at_start += HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_START_US);
 
 	remainder = p->remainder;
-	remainder_us = radio_tmr_start(0, ticks_at_start, remainder);
+	remainder_us =
+		radio_tmr_start((RF_Op *)radio_get_rf_generic_rx(), ticks_at_start, remainder);
 
 	radio_tmr_aa_capture();
 	radio_tmr_aa_save(0);

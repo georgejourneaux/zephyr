@@ -21,11 +21,6 @@
 	(RF_EventCmdDone | RF_EventLastCmdDone | RF_EventCmdCancelled | RF_EventCmdAborted |       \
 	 RF_EventCmdStopped)
 
-typedef enum RADIO_TRX {
-	RADIO_TRX_RX = 0,
-	RADIO_TRX_TX,
-} radio_trx_t;
-
 typedef enum RADIO_TX_POWER {
 	RADIO_TX_POWER_m20 = 0,
 	RADIO_TX_POWER_m18,
@@ -122,15 +117,13 @@ void radio_tx_power_max_set(void);
 void radio_freq_chan_set(uint32_t chan);
 void radio_whiten_iv_set(uint32_t iv);
 void radio_aa_set(const uint8_t *aa);
-void radio_pkt_configure(uint8_t bits_len, uint8_t max_len, uint8_t flags);
 void radio_pkt_rx_set(void *rx_packet);
-dataQueue_t *radio_pkt_tx_set(RF_Op *tx_packet);
+dataQueue_t *radio_get_rf_data_queue(void);
+rfc_CMD_BLE5_GENERIC_RX_t *radio_get_rf_generic_rx(void);
 uint32_t radio_tx_ready_delay_get(uint8_t phy, uint8_t flags);
 uint32_t radio_tx_chain_delay_get(uint8_t phy, uint8_t flags);
 uint32_t radio_rx_ready_delay_get(uint8_t phy, uint8_t flags);
 uint32_t radio_rx_chain_delay_get(uint8_t phy, uint8_t flags);
-void radio_rx_enable(void);
-void radio_tx_enable(void);
 void radio_disable(void);
 
 void radio_status_reset(void);
@@ -163,22 +156,14 @@ void radio_filter_status_reset(void);
 uint32_t radio_filter_has_match(void);
 uint32_t radio_filter_match_get(void);
 
-void radio_bc_configure(uint32_t n);
-void radio_bc_status_reset(void);
-uint32_t radio_bc_has_match(void);
-
 void radio_tmr_status_reset(void);
 void radio_tmr_tx_status_reset(void);
 void radio_tmr_rx_status_reset(void);
-void radio_tmr_tx_enable(void);
-void radio_tmr_rx_enable(void);
-void radio_tmr_tx_disable(void);
-void radio_tmr_rx_disable(void);
 void radio_tmr_tifs_set(uint32_t tifs);
-uint32_t radio_tmr_start(uint8_t trx, uint32_t ticks_start, uint32_t remainder);
-uint32_t radio_tmr_start_tick(uint8_t trx, uint32_t tick);
-uint32_t radio_tmr_start_us(uint8_t trx, uint32_t us);
-uint32_t radio_tmr_start_now(uint8_t trx);
+uint32_t radio_tmr_start(RF_Op *rf_op, uint32_t ticks_start, uint32_t remainder);
+uint32_t radio_tmr_start_tick(RF_Op *rf_op, uint32_t tick);
+uint32_t radio_tmr_start_us(RF_Op *rf_op, uint32_t us);
+uint32_t radio_tmr_start_now(RF_Op *rf_op);
 uint32_t radio_tmr_start_get(void);
 void radio_tmr_stop(void);
 void radio_tmr_hcto_configure(uint32_t hcto);

@@ -13,6 +13,7 @@
 #include <zephyr/sys/util_macro.h>
 
 #include <driverlib/rf_ble_cmd.h>
+#include <driverlib/rf_ble_mailbox.h>
 #include "hal/cc13xx_cc26xx/radio/RFQueue.h"
 
 #include "hal/ccm.h"
@@ -153,7 +154,7 @@ static int init_reset(void)
 	ble_adv_param.rxConfig.bAppendStatus = RADIO_RX_CONFIG_APPEND_STATUS;
 	ble_adv_param.rxConfig.bAppendTimestamp = RADIO_RX_CONFIG_APPEND_TIMESTAMP;
 	ble_adv_param.advConfig.advFilterPolicy = 0;
-	ble_adv_param.advConfig.deviceAddrType = 0;
+	ble_adv_param.advConfig.deviceAddrType = 1;
 	ble_adv_param.advConfig.peerAddrType = 0;
 	ble_adv_param.advConfig.bStrictLenFilter = 0;
 	ble_adv_param.advConfig.chSel = IS_ENABLED(CONFIG_BT_CTLR_CHAN_SEL_2);
@@ -165,7 +166,7 @@ static int init_reset(void)
 	ble_adv_param.pScanRspData = NULL;
 	ble_adv_param.pDeviceAddress = NULL;
 	ble_adv_param.pWhiteList = NULL;
-	ble_adv_param.behConfig.scanRspEndType = 0;
+	ble_adv_param.behConfig.scanRspEndType = 1;
 	ble_adv_param.__dummy0 = 0;
 	ble_adv_param.__dummy1 = 0;
 	ble_adv_param.endTrigger.triggerType = TRIG_NEVER;
@@ -287,8 +288,6 @@ static int prepare_cb(struct lll_prepare_param *p)
 			    RADIO_PKT_CONF_PHY(lll->phy_p));
 #else  /* !CONFIG_BT_CTLR_ADV_EXT */
 	radio_phy_set(0, 0);
-	radio_pkt_configure(RADIO_PKT_CONF_LENGTH_8BIT, PDU_AC_LEG_PAYLOAD_SIZE_MAX,
-			    RADIO_PKT_CONF_PHY(RADIO_PKT_CONF_PHY_LEGACY));
 #endif /* !CONFIG_BT_CTLR_ADV_EXT */
 
 	uint32_t aa = sys_cpu_to_le32(PDU_AC_ACCESS_ADDR);
@@ -330,7 +329,7 @@ static int prepare_cb(struct lll_prepare_param *p)
 	ticks_at_start += HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_START_US);
 
 	uint32_t remainder = p->remainder;
-	uint32_t start_us = radio_tmr_start(1, ticks_at_start, remainder);
+	uint32_t start_us = radio_tmr_start((RF_Op *)&cmd_ble5_adv, ticks_at_start, remainder);
 
 	/* capture end of Tx-ed PDU, used to calculate HCTO. */
 	radio_tmr_end_capture();
@@ -427,7 +426,7 @@ static struct pdu_adv *chan_prepare(struct lll_adv *lll)
 	struct node_rx_pdu *node_rx = ull_pdu_rx_alloc_peek(1);
 	LL_ASSERT(node_rx);
 
-	cmd_ble5_adv.pParams->pRxQ = radio_pkt_tx_set((RF_Op *)&cmd_ble5_adv);
+	cmd_ble5_adv.pParams->pRxQ = radio_get_rf_data_queue();
 	radio_pkt_rx_set(node_rx->pdu);
 	radio_isr_set(isr_adv, lll);
 
@@ -492,7 +491,10 @@ static void isr_abort(void *param, radio_isr_cb_rf_param_t rf_param)
 static void isr_adv(void *param, radio_isr_cb_rf_param_t rf_param)
 {
 	if (rf_param.event_mask & RADIO_RF_EVENT_MASK_TX_DONE) {
-		isr_tx(param);
+		if (BLE_DONE_SCAN_RSP !=
+		    RF_getCmdOp(rf_param.handle, rf_param.command_handle)->status) {
+			isr_tx(param);
+		}
 	}
 
 	if (rf_param.event_mask & RADIO_RF_EVENT_MASK_RX_DONE) {
@@ -732,7 +734,7 @@ static void isr_done(void *param)
 #endif
 
 #if defined(HAL_RADIO_GPIO_HAVE_PA_PIN) || defined(CONFIG_BT_CTLR_ADV_EXT)
-		uint32_t start_us = radio_tmr_start_now(1);
+		uint32_t start_us = radio_tmr_start_now(RADIO_TRX_TX);
 
 #if defined(CONFIG_BT_CTLR_ADV_EXT)
 		struct lll_adv_aux *lll_aux;
@@ -750,7 +752,7 @@ static void isr_done(void *param)
 					 HAL_RADIO_GPIO_PA_OFFSET);
 #endif /* HAL_RADIO_GPIO_HAVE_PA_PIN */
 #else  /* !(HAL_RADIO_GPIO_HAVE_PA_PIN || defined(CONFIG_BT_CTLR_ADV_EXT)) */
-		radio_tx_enable();
+		radio_tmr_start_now((RF_Op *)&cmd_ble5_adv);
 #endif /* !(HAL_RADIO_GPIO_HAVE_PA_PIN || defined(CONFIG_BT_CTLR_ADV_EXT)) */
 
 		/* capture end of Tx-ed PDU, used to calculate HCTO. */
