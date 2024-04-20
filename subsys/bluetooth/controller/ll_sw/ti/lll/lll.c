@@ -581,21 +581,6 @@ void lll_isr_early_abort(void *param, radio_isr_cb_rf_param_t rf_param)
 	lll_done(NULL);
 }
 
-void lll_isr_conn(void *param, radio_isr_cb_rf_param_t rf_param)
-{
-	if (rf_param.event_mask & RADIO_RF_EVENT_MASK_TX_DONE) {
-		lll_conn_isr_tx(param);
-	}
-
-	if (rf_param.event_mask & RADIO_RF_EVENT_MASK_RX_DONE) {
-		lll_conn_isr_rx(param);
-	}
-
-	if (rf_param.event_mask & RADIO_RF_EVENT_MASK_CMD_DONE) {
-		// isr_done(param);
-	}
-}
-
 int lll_prepare_resolve(lll_is_abort_cb_t is_abort_cb, lll_abort_cb_t abort_cb,
 			lll_prepare_cb_t prepare_cb, struct lll_prepare_param *prepare_param,
 			uint8_t is_resume, uint8_t is_dequeue)

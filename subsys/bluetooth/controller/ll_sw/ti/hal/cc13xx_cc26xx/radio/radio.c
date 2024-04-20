@@ -1,10 +1,3 @@
-/*
- * Copyright (c) 2016 - 2020 Nordic Semiconductor ASA
- * Copyright (c) 2016 Vinayak Kariappa Chettimada
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-
 #include <zephyr/toolchain.h>
 #include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/sys/byteorder.h>
@@ -1416,8 +1409,8 @@ static uint32_t radio_tmr_start_hlp(RF_Op *rf_op, uint32_t ticks_start, uint32_t
 	ble_radio_op->startTrigger.triggerType = TRIG_ABSTIME;
 	ble_radio_op->startTrigger.pastTrig = true;
 
-	LOG_DBG("%s (0x%04X) in %u ch %u", commandNo_to_string(ble_radio_op->commandNo),
-		ble_radio_op->commandNo, (ble_radio_op->startTime - now), ble_radio_op->channel);
+	LOG_DBG("%s (0x%04X) ch %u starts in %u", commandNo_to_string(ble_radio_op->commandNo),
+		ble_radio_op->commandNo, ble_radio_op->channel, (ble_radio_op->startTime - now));
 
 	driver_data->rf.cmd.active_handle = RF_postCmd(
 		rfBleHandle, driver_data->rf.op, RF_PriorityNormal, isr_radio, RF_EVENT_ISR_MASK);

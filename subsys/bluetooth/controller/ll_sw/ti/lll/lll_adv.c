@@ -14,12 +14,12 @@
 
 #include <driverlib/rf_ble_cmd.h>
 #include <driverlib/rf_ble_mailbox.h>
-#include "hal/cc13xx_cc26xx/radio/RFQueue.h"
 
 #include "hal/ccm.h"
 #include "hal/debug.h"
 #include "hal/radio.h"
 #include "hal/ticker.h"
+#include "hal/cc13xx_cc26xx/radio/RFQueue.h"
 
 #include "util/mem.h"
 #include "util/memq.h"
