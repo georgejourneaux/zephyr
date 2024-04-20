@@ -53,8 +53,13 @@ LOG_MODULE_REGISTER(bt_ti_radio);
 #define RF_TX_ENTRY_BUFFER_SIZE (2)
 #define RF_TX_BUFFER_SIZE       HAL_RADIO_PDU_LEN_MAX
 
-#define RF_EVENT_ISR_MASK                                                                          \
+#define RF_EVENT_DONE_MASK                                                                         \
 	(RADIO_RF_EVENT_MASK_CMD_DONE | RADIO_RF_EVENT_MASK_TX_DONE | RADIO_RF_EVENT_MASK_RX_DONE)
+#define RF_EVENT_ERROR_MASK                                                                        \
+	(RF_EventRxNOk | RF_EventRxBufFull | RF_EventRxAborted | RF_EventRxCollisionDetected |     \
+	 RF_EventInternalError)
+
+#define RF_EVENT_ISR_MASK (RF_EVENT_DONE_MASK | RF_EVENT_ERROR_MASK)
 
 #define TX_MARGIN    (0)
 #define RX_MARGIN    (8)
