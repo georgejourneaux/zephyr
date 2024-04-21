@@ -1,70 +1,52 @@
-#include <zephyr/toolchain.h>
-#include <zephyr/dt-bindings/gpio/gpio.h>
-#include <zephyr/sys/byteorder.h>
-#include <soc.h>
-
 #include <ti/drivers/Power.h>
 #include <ti/drivers/power/PowerCC26XX.h>
 #include <ti/drivers/power/PowerCC26X2.h>
-#include <driverlib/rf_data_entry.h>
-#include <driverlib/aon_rtc.h>
-#include <driverlib/osc.h>
-#include <driverlib/prcm.h>
-#include <driverlib/rf_mailbox.h>
 
-#include <driverlib/rf_ble_mailbox.h>
 #include <driverlib/rfc.h>
+#include <driverlib/rf_mailbox.h>
+#include <driverlib/rf_ble_mailbox.h>
+
 #include <rf_patches/rf_patch_cpe_multi_protocol.h>
-#include <inc/hw_ccfg.h>
-#include <inc/hw_fcfg1.h>
 
-#include "util/mem.h"
-
-#include "hal/cpu.h"
-#include "hal/ccm.h"
-#include "hal/cntr.h"
-#include "hal/debug.h"
 #include "hal/radio.h"
-#include "hal/radio_df.h"
-#include "hal/swi.h"
-#include "hal/ticker.h"
 #include "hal/cc13xx_cc26xx/ll_irqs.h"
-
-#include "lll/pdu_vendor.h"
-
-#include "ll_sw/pdu_df.h"
-#include "ll_sw/pdu.h"
-
-#include "radio_internal.h"
-#include "RFQueue.h"
 
 #define LOG_LEVEL CONFIG_BT_HCI_DRIVER_LOG_LEVEL
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(bt_ti_radio);
 
-#define RF_RX_ADDITIONAL_DATA_BYTES                                                                \
-	(RADIO_RX_CONFIG_INCLUDE_LEN_BYTE + RADIO_RX_CONFIG_INCLUDE_CRC +                          \
-	 RADIO_RX_CONFIG_APPEND_RSSI + RADIO_RX_CONFIG_APPEND_STATUS +                             \
-	 RADIO_RX_CONFIG_APPEND_TIMESTAMP)
-
-#define RF_RX_ENTRY_BUFFER_SIZE (2)
-#define RF_RX_BUFFER_SIZE       (HAL_RADIO_PDU_LEN_MAX + RF_RX_ADDITIONAL_DATA_BYTES)
-
-#define RF_TX_ENTRY_BUFFER_SIZE (2)
-#define RF_TX_BUFFER_SIZE       HAL_RADIO_PDU_LEN_MAX
+#define ISR_LATENCY_DONE (0xfedcba98)
 
 #define RF_EVENT_DONE_MASK                                                                         \
-	(RADIO_RF_EVENT_MASK_CMD_DONE | RADIO_RF_EVENT_MASK_TX_DONE | RADIO_RF_EVENT_MASK_RX_DONE)
+	(RADIO_RF_EVENT_MASK_TX_DONE | RADIO_RF_EVENT_MASK_RX_DONE |                               \
+	 RADIO_RF_EVENT_MASK_CMD_DONE | RADIO_RF_EVENT_MASK_CMD_STOPPED)
+
 #define RF_EVENT_ERROR_MASK                                                                        \
 	(RF_EventRxNOk | RF_EventRxBufFull | RF_EventRxAborted | RF_EventRxCollisionDetected |     \
 	 RF_EventInternalError)
 
 #define RF_EVENT_ISR_MASK (RF_EVENT_DONE_MASK | RF_EVENT_ERROR_MASK)
 
-#define TX_MARGIN    (0)
-#define RX_MARGIN    (8)
-#define Rx_OVHD      (32)  /* Rx overhead, depends on PHY type */
-#define MIN_CMD_TIME (400) /* Minimum interval for a delayed radio cmd */
+typedef enum RF_TX_POWER {
+	RADIO_TX_POWER_m20 = 0,
+	RADIO_TX_POWER_m18,
+	RADIO_TX_POWER_m15,
+	RADIO_TX_POWER_m12,
+	RADIO_TX_POWER_m10,
+	RADIO_TX_POWER_m9,
+	RADIO_TX_POWER_m6,
+	RADIO_TX_POWER_m5,
+	RADIO_TX_POWER_m3,
+	RADIO_TX_POWER_0,
+	RADIO_TX_POWER_1,
+	RADIO_TX_POWER_2,
+	RADIO_TX_POWER_3,
+	RADIO_TX_POWER_4,
+	RADIO_TX_POWER_5,
+
+	RADIO_TX_POWER_TABLE_END,
+	RADIO_TX_POWER_TABLE_SIZE,
+} rf_tx_power_t;
 
 typedef enum RF_CHANNEL {
 	RF_CHANNEL_0 = 0,
@@ -167,156 +149,22 @@ typedef struct rf_frequency_table_entry {
 	const uint8_t whitening;
 } rf_frequency_table_entry_t;
 
-typedef struct RF_RX_DATA {
-	rfc_dataEntryGeneral_t *entry;
-	dataQueue_t queue;
-	uint8_t buffer[RF_QUEUE_DATA_ENTRY_BUFFER_SIZE(RF_RX_ENTRY_BUFFER_SIZE, RF_RX_BUFFER_SIZE)]
-		__attribute__((aligned(4)));
-} rf_rx_data_t;
+typedef struct BLE_CC13XX_CC26XX_RF {
+	RF_Handle handle;
+	RF_Object object;
+	RF_Params params;
+	RF_Mode mode;
+	struct BLE_CC13XX_CC26XX_RF {
+		rfc_CMD_NOP_t nop;
+		rfc_CMD_FS_t fs;
+		rfc_CMD_CLEAR_RX_t clear_rx;
+		rfc_CMD_BLE5_RADIO_SETUP_t ble5_radio_setup;
+	} cmd;
+} ble_cc13xx_cc26xx_rf_t;
 
-typedef struct RF_TX_DATA {
-	rfc_dataEntryGeneral_t *entry;
-	dataQueue_t queue;
-	uint8_t buffer[RF_QUEUE_DATA_ENTRY_BUFFER_SIZE(RF_TX_ENTRY_BUFFER_SIZE, RF_TX_BUFFER_SIZE)]
-		__attribute__((aligned(4)));
-} rf_tx_data_t;
-
-typedef struct RF_RAT {
-	RF_RatConfigCompare hcto_compare;
-	RF_RatHandle hcto_handle;
-} rf_rat_t;
-
-typedef struct RF_CMD {
-	RF_CmdHandle active_handle;
-
-	rfc_CMD_NOP_t nop;
-	rfc_CMD_FS_t fs;
-	rfc_CMD_CLEAR_RX_t clear_rx;
-
-	rfc_CMD_BLE5_RADIO_SETUP_t ble5_radio_setup;
-
-	rfc_bleGenericRxPar_t _ble_generic_rx_param;
-	rfc_bleGenericRxOutput_t _ble_generic_rx_output;
-	rfc_CMD_BLE5_GENERIC_RX_t ble5_generic_rx;
-
-	rfc_ble5SlavePar_t _ble5_slave_param;
-	rfc_bleMasterSlaveOutput_t _ble_slave_output;
-	rfc_CMD_BLE5_SLAVE_t ble5_slave;
-} rf_cmd_t;
-
-typedef struct RF {
-	RF_Op *op;
-	rf_rx_data_t rx;
-	rf_tx_data_t tx;
-	rf_rat_t rat;
-	rf_cmd_t cmd;
-} rf_t;
-
-typedef struct ble_cc13xx_cc26xx_data {
-	uint32_t access_address;
-	uint32_t polynomial;
-	uint32_t iv;
-	rf_channel_t channel;
-	rf_phy_t phy;
-
-	uint8_t *lll_rx_pdu;
-
-	rf_t rf;
+typedef struct BLE_CC13XX_CC26XX_DATA {
+	ble_cc13xx_cc26xx_rf_t rf;
 } ble_cc13xx_cc26xx_data_t;
-
-#if !(defined(CONFIG_PM) || defined(CONFIG_PM_DEVICE) || defined(CONFIG_POWEROFF))
-const PowerCC26X2_Config PowerCC26X2_config = {
-	.policyInitFxn = NULL,
-	.policyFxn = &PowerCC26XX_doWFI,
-	.calibrateFxn = &PowerCC26XX_calibrate,
-	.enablePolicy = true,
-	.calibrateRCOSC_LF = true,
-	.calibrateRCOSC_HF = true,
-};
-#endif
-
-static RF_Object rfObject;
-static RF_Handle rfBleHandle;
-static RF_Mode RF_modeBle = {
-	.rfMode = RF_MODE_AUTO,
-	.cpePatchFxn = &rf_patch_cpe_multi_protocol,
-	.mcePatchFxn = 0,
-	.rfePatchFxn = 0,
-};
-
-// Overrides for CMD_BLE5_RADIO_SETUP
-uint32_t pOverrides_bleCommon[] = {
-	// DC/DC regulator: In Tx, use DCDCCTL5[3:0]=0x3 (DITHER_EN=0 and IPEAK=3).
-	(uint32_t)0x00F388D3,
-	// Bluetooth 5: Set pilot tone length to 20 us Common
-	HW_REG_OVERRIDE(0x6024, 0x2E20),
-	// Bluetooth 5: Compensate for reduced pilot tone length
-	(uint32_t)0x01280263,
-	// Bluetooth 5: Default to no CTE.
-	HW_REG_OVERRIDE(0x5328, 0x0000),
-	// Synth: Increase mid code calibration time to 5 us
-	(uint32_t)0x00058683,
-	// Synth: Increase mid code calibration time to 5 us
-	HW32_ARRAY_OVERRIDE(0x4004, 1),
-	// Synth: Increase mid code calibration time to 5 us
-	(uint32_t)0x38183C30,
-	// Bluetooth 5: Move synth start code
-	HW_REG_OVERRIDE(0x4064, 0x3C),
-	// Bluetooth 5: Set DTX gain -5% for 1 Mbps
-	(uint32_t)0x00E787E3,
-	// Bluetooth 5: Set DTX threshold 1 Mbps
-	(uint32_t)0x00950803,
-	// Bluetooth 5: Set DTX gain -2.5% for 2 Mbps
-	(uint32_t)0x00F487F3,
-	// Bluetooth 5: Set DTX threshold 2 Mbps
-	(uint32_t)0x012A0823,
-	// Bluetooth 5: Set synth fine code calibration interval
-	HW32_ARRAY_OVERRIDE(0x4020, 1),
-	// Bluetooth 5: Set synth fine code calibration interval
-	(uint32_t)0x41005F00,
-	// Bluetooth 5: Adapt to synth fine code calibration interval
-	(uint32_t)0xC0040141,
-	// Bluetooth 5: Adapt to synth fine code calibration interval
-	(uint32_t)0x0007DD44,
-	// Bluetooth 5: Set enhanced TX shape
-	(uint32_t)0x000D8C73, (uint32_t)0xFFFFFFFF};
-
-// Overrides for CMD_BLE5_RADIO_SETUP
-uint32_t pOverrides_ble1Mbps[] = {
-	// Bluetooth 5: Set pilot tone length to 20 us
-	HW_REG_OVERRIDE(0x5320, 0x03C0),
-	// Bluetooth 5: Compensate syncTimeadjust
-	(uint32_t)0x015302A3,
-	// Symbol tracking: timing correction
-	HW_REG_OVERRIDE(0x50D4, 0x00F9),
-	// Symbol tracking: reduce sample delay
-	HW_REG_OVERRIDE(0x50E0, 0x0087),
-	// Symbol tracking: demodulation order
-	HW_REG_OVERRIDE(0x50F8, 0x0014), (uint32_t)0xFFFFFFFF};
-
-// Overrides for CMD_BLE5_RADIO_SETUP
-uint32_t pOverrides_ble2Mbps[] = {
-	// Bluetooth 5: Set pilot tone length to 20 us
-	HW_REG_OVERRIDE(0x5320, 0x03C0),
-	// Bluetooth 5: Compensate syncTimeAdjust
-	(uint32_t)0x00F102A3,
-	// Bluetooth 5: increase low gain AGC delay for 2 Mbps
-	HW_REG_OVERRIDE(0x60A4, 0x7D00),
-	// Symbol tracking: timing correction
-	HW_REG_OVERRIDE(0x50D4, 0x00F9),
-	// Symbol tracking: reduce sample delay
-	HW_REG_OVERRIDE(0x50E0, 0x0087),
-	// Symbol tracking: demodulation order
-	HW_REG_OVERRIDE(0x50F8, 0x0014), (uint32_t)0xFFFFFFFF};
-
-// Overrides for CMD_BLE5_RADIO_SETUP
-uint32_t pOverrides_bleCoded[] = {
-	// Bluetooth 5: Set pilot tone length to 20 us
-	HW_REG_OVERRIDE(0x5320, 0x03C0),
-	// Bluetooth 5: Compensate syncTimeadjust
-	(uint32_t)0x07A902A3,
-	// Rx: Set AGC reference level to 0x21 (default: 0x2E)
-	HW_REG_OVERRIDE(0x609C, 0x0021), (uint32_t)0xFFFFFFFF};
 
 static const rf_frequency_table_entry_t channel_frequency_table[RF_CHANNEL_FREQUENCY_COUNT] = {
 	[RF_CHANNEL_FREQUENCY_2402] = {.frequency = 2402, .whitening = 0xE5},
@@ -438,47 +286,91 @@ static const RF_TxPowerTable_Entry RF_BLE_txPowerTable[RADIO_TX_POWER_TABLE_SIZE
 		}, /* 0x7217 */
 	[RADIO_TX_POWER_TABLE_END] = RF_TxPowerTable_TERMINATION_ENTRY};
 
-static uint32_t timer_aa = 0;       /* AA (Access Address) timestamp saved value */
-static uint32_t timer_aa_save = 0;  /* save AA timestamp */
-static uint32_t timer_ready = 0;    /* radio ready for Tx/Rx timestamp */
-static uint32_t timer_end = 0;      /* Tx/Rx end timestamp saved value */
-static uint32_t timer_end_save = 0; /* save Tx/Rx end timestamp */
-static uint32_t timer_tifs = 0;
+// Overrides for CMD_BLE5_RADIO_SETUP
+static uint32_t overrides_ble_common[] = {
+	// DC/DC regulator: In Tx, use DCDCCTL5[3:0]=0x3 (DITHER_EN=0 and IPEAK=3).
+	(uint32_t)0x00F388D3,
+	// Bluetooth 5: Set pilot tone length to 20 us Common
+	HW_REG_OVERRIDE(0x6024, 0x2E20),
+	// Bluetooth 5: Compensate for reduced pilot tone length
+	(uint32_t)0x01280263,
+	// Bluetooth 5: Default to no CTE.
+	HW_REG_OVERRIDE(0x5328, 0x0000),
+	// Synth: Increase mid code calibration time to 5 us
+	(uint32_t)0x00058683,
+	// Synth: Increase mid code calibration time to 5 us
+	HW32_ARRAY_OVERRIDE(0x4004, 1),
+	// Synth: Increase mid code calibration time to 5 us
+	(uint32_t)0x38183C30,
+	// Bluetooth 5: Move synth start code
+	HW_REG_OVERRIDE(0x4064, 0x3C),
+	// Bluetooth 5: Set DTX gain -5% for 1 Mbps
+	(uint32_t)0x00E787E3,
+	// Bluetooth 5: Set DTX threshold 1 Mbps
+	(uint32_t)0x00950803,
+	// Bluetooth 5: Set DTX gain -2.5% for 2 Mbps
+	(uint32_t)0x00F487F3,
+	// Bluetooth 5: Set DTX threshold 2 Mbps
+	(uint32_t)0x012A0823,
+	// Bluetooth 5: Set synth fine code calibration interval
+	HW32_ARRAY_OVERRIDE(0x4020, 1),
+	// Bluetooth 5: Set synth fine code calibration interval
+	(uint32_t)0x41005F00,
+	// Bluetooth 5: Adapt to synth fine code calibration interval
+	(uint32_t)0xC0040141,
+	// Bluetooth 5: Adapt to synth fine code calibration interval
+	(uint32_t)0x0007DD44,
+	// Bluetooth 5: Set enhanced TX shape
+	(uint32_t)0x000D8C73, (uint32_t)0xFFFFFFFF};
 
-static uint32_t rtc_start;
-static uint32_t rtc_diff_start_us;
-static uint32_t skip_hcto;
+// Overrides for CMD_BLE5_RADIO_SETUP
+uint32_t overrides_ble_1Mbps[] = {
+	// Bluetooth 5: Set pilot tone length to 20 us
+	HW_REG_OVERRIDE(0x5320, 0x03C0),
+	// Bluetooth 5: Compensate syncTimeadjust
+	(uint32_t)0x015302A3,
+	// Symbol tracking: timing correction
+	HW_REG_OVERRIDE(0x50D4, 0x00F9),
+	// Symbol tracking: reduce sample delay
+	HW_REG_OVERRIDE(0x50E0, 0x0087),
+	// Symbol tracking: demodulation order
+	HW_REG_OVERRIDE(0x50F8, 0x0014), (uint32_t)0xFFFFFFFF};
 
-static uint32_t isr_timer_aa = 0;
-static uint32_t isr_timer_end = 0;
-static uint32_t isr_latency = 0;
+// Overrides for CMD_BLE5_RADIO_SETUP
+uint32_t overrides_ble_2Mbps[] = {
+	// Bluetooth 5: Set pilot tone length to 20 us
+	HW_REG_OVERRIDE(0x5320, 0x03C0),
+	// Bluetooth 5: Compensate syncTimeAdjust
+	(uint32_t)0x00F102A3,
+	// Bluetooth 5: increase low gain AGC delay for 2 Mbps
+	HW_REG_OVERRIDE(0x60A4, 0x7D00),
+	// Symbol tracking: timing correction
+	HW_REG_OVERRIDE(0x50D4, 0x00F9),
+	// Symbol tracking: reduce sample delay
+	HW_REG_OVERRIDE(0x50E0, 0x0087),
+	// Symbol tracking: demodulation order
+	HW_REG_OVERRIDE(0x50F8, 0x0014), (uint32_t)0xFFFFFFFF};
 
-static int8_t rssi;
-
-static uint32_t rx_warmup = 0;
-static uint32_t tx_warmup = 0;
-static uint32_t next_warmup;
-
-static uint32_t radio_trx = 0;
-
-static radio_isr_cb_t radio_isr_cb;
-static void *radio_isr_cb_param;
-
-static bool crc_valid = true;
-
-static uint8_t MALIGN(4) _pkt_empty[PDU_EM_LL_SIZE_MAX];
-static uint8_t MALIGN(4) _pkt_scratch[MAX((HAL_RADIO_PDU_LEN_MAX + 3), PDU_AC_LL_SIZE_MAX)];
+// Overrides for CMD_BLE5_RADIO_SETUP
+uint32_t overrides_ble_coded[] = {
+	// Bluetooth 5: Set pilot tone length to 20 us
+	HW_REG_OVERRIDE(0x5320, 0x03C0),
+	// Bluetooth 5: Compensate syncTimeadjust
+	(uint32_t)0x07A902A3,
+	// Rx: Set AGC reference level to 0x21 (default: 0x2E)
+	HW_REG_OVERRIDE(0x609C, 0x0021), (uint32_t)0xFFFFFFFF};
 
 static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
-	.access_address = 0xFFFFFFFF,
-	.polynomial = 0,
-	.iv = 0,
-	.channel = 0,
-	.phy = 0,
-
-	.rf.rx = {.entry = NULL, .queue = {NULL}, .buffer = {0}},
-	.rf.tx = {.entry = NULL, .queue = {NULL}, .buffer = {0}},
-	.rf.rat = {.hcto_compare = {0}, .hcto_handle = 0},
+	.rf.handle = NULL,
+	.rf.object = {0},
+	.rf.params = {0},
+	.rf.mode =
+		{
+			.rfMode = RF_MODE_AUTO,
+			.cpePatchFxn = &rf_patch_cpe_multi_protocol,
+			.mcePatchFxn = 0,
+			.rfePatchFxn = 0,
+		},
 	.rf.cmd = {
 		.fs = {.commandNo = CMD_FS,
 		       .status = IDLE,
@@ -530,7 +422,7 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
 				     .startTrigger.pastTrig = 0,
 				     .condition.rule = COND_NEVER,
 				     .condition.nSkip = COND_ALWAYS,
-				     .defaultPhy.mainMode = 0,
+				     .defaultPhy.mainMode = RF_PHY_1MBS,
 				     .defaultPhy.coding = 0,
 				     .loDivider = 0,
 				     .config.frontEndMode = 0,
@@ -539,126 +431,169 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
 				     .config.bNoFsPowerUp = 0,
 				     .config.bSynthNarrowBand = 0,
 				     .txPower = 0x7217,
-				     .pRegOverrideCommon = pOverrides_bleCommon,
-				     .pRegOverride1Mbps = pOverrides_ble1Mbps,
-				     .pRegOverride2Mbps = pOverrides_ble2Mbps,
-				     .pRegOverrideCoded = pOverrides_bleCoded},
-
-		.ble5_generic_rx =
-			{
-				.commandNo = CMD_BLE5_GENERIC_RX,
-				.status = IDLE,
-				.pNextOp = NULL,
-				.startTime = 0,
-				.startTrigger.triggerType = TRIG_NOW,
-				.startTrigger.bEnaCmd = 0,
-				.startTrigger.triggerNo = 0,
-				.startTrigger.pastTrig = 0,
-				.condition.rule = COND_NEVER,
-				.condition.nSkip = COND_ALWAYS,
-				.channel = 0,
-				.whitening.init = 0,
-				.whitening.bOverride = 0,
-				.phyMode.mainMode = 0,
-				.phyMode.coding = 0,
-				.rangeDelay = 0,
-				.txPower = 0,
-				.pParams = &ble_cc13xx_cc26xx_data.rf.cmd._ble_generic_rx_param,
-				.pOutput = &ble_cc13xx_cc26xx_data.rf.cmd._ble_generic_rx_output,
-				.tx20Power = 0,
-			},
-		._ble_generic_rx_param =
-			{
-				.pRxQ = &ble_cc13xx_cc26xx_data.rf.rx.queue,
-				.rxConfig.bAutoFlushIgnored = RADIO_RX_CONFIG_AUTO_FLUSH_IGNORED,
-				.rxConfig.bAutoFlushCrcErr = RADIO_RX_CONFIG_AUTO_FLUSH_CRC_ERR,
-				.rxConfig.bAutoFlushEmpty = RADIO_RX_CONFIG_AUTO_FLUSH_EMPTY,
-				.rxConfig.bIncludeLenByte = RADIO_RX_CONFIG_INCLUDE_LEN_BYTE,
-				.rxConfig.bIncludeCrc = RADIO_RX_CONFIG_INCLUDE_CRC,
-				.rxConfig.bAppendRssi = RADIO_RX_CONFIG_APPEND_RSSI,
-				.rxConfig.bAppendStatus = RADIO_RX_CONFIG_APPEND_STATUS,
-				.rxConfig.bAppendTimestamp = RADIO_RX_CONFIG_APPEND_TIMESTAMP,
-				.bRepeat = 0,
-				.__dummy0 = 0,
-				.accessAddress = 0,
-				.crcInit0 = 0,
-				.crcInit1 = 0,
-				.crcInit2 = 0,
-				.endTrigger.triggerType = TRIG_NEVER,
-				.endTrigger.bEnaCmd = 0,
-				.endTrigger.triggerNo = 0,
-				.endTrigger.pastTrig = 0,
-				.endTime = 0,
-			},
-		._ble_generic_rx_output = {0},
-
-		.ble5_slave =
-			{
-				.commandNo = CMD_BLE5_SLAVE,
-				.status = IDLE,
-				.pNextOp = NULL,
-				.startTime = 0,
-				.startTrigger.triggerType = TRIG_NOW,
-				.startTrigger.bEnaCmd = 0,
-				.startTrigger.triggerNo = 0,
-				.startTrigger.pastTrig = 0,
-				.condition.rule = COND_NEVER,
-				.condition.nSkip = COND_ALWAYS,
-				.channel = 0,
-				.whitening.init = 0,
-				.whitening.bOverride = 0,
-				.phyMode.mainMode = 0,
-				.phyMode.coding = 0,
-				.rangeDelay = 0,
-				.txPower = 0,
-				.pParams = &ble_cc13xx_cc26xx_data.rf.cmd._ble5_slave_param,
-				.pOutput = &ble_cc13xx_cc26xx_data.rf.cmd._ble_slave_output,
-				.tx20Power = 0,
-			},
-		._ble5_slave_param =
-			{
-				.pRxQ = NULL,
-				.pTxQ = &ble_cc13xx_cc26xx_data.rf.tx.queue,
-				.rxConfig.bAutoFlushIgnored = RADIO_RX_CONFIG_AUTO_FLUSH_IGNORED,
-				.rxConfig.bAutoFlushCrcErr = RADIO_RX_CONFIG_AUTO_FLUSH_CRC_ERR,
-				.rxConfig.bAutoFlushEmpty = RADIO_RX_CONFIG_AUTO_FLUSH_EMPTY,
-				.rxConfig.bIncludeLenByte = RADIO_RX_CONFIG_INCLUDE_LEN_BYTE,
-				.rxConfig.bIncludeCrc = RADIO_RX_CONFIG_INCLUDE_CRC,
-				.rxConfig.bAppendRssi = RADIO_RX_CONFIG_APPEND_RSSI,
-				.rxConfig.bAppendStatus = RADIO_RX_CONFIG_APPEND_STATUS,
-				.rxConfig.bAppendTimestamp = RADIO_RX_CONFIG_APPEND_TIMESTAMP,
-				.seqStat.lastRxSn = 0,
-				.seqStat.lastTxSn = 0,
-				.seqStat.nextTxSn = 0,
-				.seqStat.bFirstPkt = 1,
-				.seqStat.bAutoEmpty = 0,
-				.seqStat.bLlCtrlTx = 0,
-				.seqStat.bLlCtrlAckRx = 0,
-				.seqStat.bLlCtrlAckPending = 0,
-				.maxNack = 0,
-				.maxPkt = 0,
-				.accessAddress = 0,
-				.crcInit0 = 0,
-				.crcInit1 = 0,
-				.crcInit2 = 0,
-				.timeoutTrigger.triggerType = TRIG_REL_START,
-				.timeoutTrigger.bEnaCmd = 0,
-				.timeoutTrigger.triggerNo = 0,
-				.timeoutTrigger.pastTrig = 0,
-				.timeoutTime = 0,
-				.maxRxPktLen = 0,
-				.maxLenLowRate = 0,
-				.__dummy0 = 0,
-				.endTrigger.triggerType = TRIG_NEVER,
-				.endTrigger.bEnaCmd = 0,
-				.endTrigger.triggerNo = 0,
-				.endTrigger.pastTrig = 0,
-			},
-		._ble_slave_output = {0},
+				     .pRegOverrideCommon = overrides_ble_common,
+				     .pRegOverride1Mbps = overrides_ble_1Mbps,
+				     .pRegOverride2Mbps = overrides_ble_2Mbps,
+				     .pRegOverrideCoded = overrides_ble_coded},
 	}};
 static ble_cc13xx_cc26xx_data_t *driver_data = &ble_cc13xx_cc26xx_data;
 
-static const char *const commandNo_to_string(RF_CmdHandle commandNo)
+static uint32_t isr_latency_status = 0;
+static uint32_t isr_latency = 0;
+
+#if !(defined(CONFIG_PM) || defined(CONFIG_PM_DEVICE) || defined(CONFIG_POWEROFF))
+static const PowerCC26X2_Config PowerCC26X2_config = {
+	.policyInitFxn = NULL,
+	.policyFxn = &PowerCC26XX_doWFI,
+	.calibrateFxn = &PowerCC26XX_calibrate,
+	.enablePolicy = true,
+	.calibrateRCOSC_LF = true,
+	.calibrateRCOSC_HF = true,
+};
+#endif
+
+static void isr_latency_callback(RF_Handle rf_handle, RF_CmdHandle command_handle,
+				 RF_EventMask event_mask);
+static void get_isr_latency(void);
+
+static const char *const rf_get_command_string(RF_CmdHandle commandNo);
+static const char *const rf_get_status_string(uint16_t status);
+static void rf_log_dbg_event_mask(RF_EventMask event);
+
+void radio_setup(void)
+{
+	RF_Params_init(&driver_data->rf.params);
+
+	driver_data->rf.handle = RF_open(&driver_data->rf.object, &driver_data->rf.mode,
+					 (RF_RadioSetup *)&driver_data->rf.cmd.ble5_radio_setup,
+					 &driver_data->rf.params);
+	LL_ASSERT(driver_data->rf.handle);
+
+	driver_data->rf.cmd.fs.frequency = channel_frequency_table[RF_CHANNEL_37].frequency;
+	RF_runCmd(driver_data->rf.handle, (RF_Op *)&driver_data->rf.cmd.fs, RF_PriorityNormal, NULL,
+		  RF_EventLastCmdDone);
+
+	get_isr_latency();
+}
+
+void radio_reset(void)
+{
+	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
+	irq_disable(LL_RADIO_IRQn);
+}
+
+void radio_stop(void)
+{
+	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
+}
+
+void radio_disable(void)
+{
+	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
+
+	RF_runDirectCmd(driver_data->rf.handle, CMD_STOP);
+	RF_runImmediateCmd(driver_data->rf.handle, (uint32_t *)&driver_data->rf.cmd.clear_rx);
+}
+
+uint32_t radio_rf_op_start_now(RF_Op *rf_op, uint32_t timeout_ticks, radio_isr_cb_t callback)
+{
+	return radio_rf_op_start_tick(rf_op, 0, 1, timeout_ticks, callback);
+}
+
+uint32_t radio_rf_op_start_delayed(RF_Op *rf_op, uint32_t delay_ticks, uint32_t timeout_ticks,
+				   radio_isr_cb_t callback)
+{
+	return radio_rf_op_start_tick(rf_op, (cntr_cnt_get() + delay_ticks), 1, timeout_ticks,
+				      callback);
+}
+
+uint32_t radio_rf_op_start_tick(RF_Op *rf_op, uint32_t start_tick, uint32_t remainder,
+				uint32_t timeout_ticks, radio_isr_cb_t callback)
+{
+	uint32_t now = cntr_cnt_get();
+
+	/* Save it for later */
+	// rtc_start = start_ticks;
+
+#warning "TODO: Check if start time has already passed"
+	rfc_ble5RadioOp_t *ble_radio_op = (rfc_ble5RadioOp_t *)rf_op;
+	ble_radio_op->startTime = start_tick + remainder;
+	ble_radio_op->startTrigger.triggerType = TRIG_ABSTIME;
+	ble_radio_op->startTrigger.pastTrig = true;
+
+	LOG_DBG("%s (0x%04X) ch %u starts in %u", rf_get_command_string(ble_radio_op->commandNo),
+		ble_radio_op->commandNo, ble_radio_op->channel, (ble_radio_op->startTime - now));
+
+	RF_postCmd(driver_data->rf.handle, rf_op, RF_PriorityNormal, callback, RF_EVENT_ISR_MASK);
+
+	return (ble_radio_op->startTime - now);
+}
+
+void radio_isr(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask)
+{
+	RF_Op *rf_op = RF_getCmdOp(rf_handle, command_handle);
+	LOG_DBG("%s (0x%04X) %s (0x%04X)", rf_get_command_string(rf_op->commandNo),
+		rf_op->commandNo, rf_get_status_string(rf_op->status), rf_op->status);
+	rf_log_dbg_event_mask(event_mask);
+}
+
+void radio_tx_power_set(int8_t power)
+{
+	LOG_DBG("%u", power);
+	RF_setTxPower(
+		driver_data->rf.handle,
+		RF_TxPowerTable_findValue((RF_TxPowerTable_Entry *)RF_BLE_txPowerTable, power));
+}
+
+void radio_tx_power_max_set(void)
+{
+	radio_tx_power_set(RF_TxPowerTable_MAX_DBM);
+}
+
+uint32_t radio_rx_ready_delay_get(uint8_t phy, uint8_t flags)
+{
+	return 0;
+}
+
+uint32_t radio_rx_chain_delay_get(uint8_t phy, uint8_t flags)
+{
+#warning "TODO: Figure this out"
+	return 16 + 2 * 32 + 8 + 32 + isr_latency;
+}
+
+uint32_t radio_tx_ready_delay_get(uint8_t phy, uint8_t flags)
+{
+	return 0;
+}
+
+uint32_t radio_tx_chain_delay_get(uint8_t phy, uint8_t flags)
+{
+	return 0;
+}
+
+static void isr_latency_callback(RF_Handle rf_handle, RF_CmdHandle command_handle,
+				 RF_EventMask event_mask)
+{
+	isr_latency = HAL_TICKER_TICKS_TO_US(cntr_cnt_get());
+	isr_latency_status = ISR_LATENCY_DONE;
+}
+
+static void get_isr_latency(void)
+{
+	isr_latency_status = 0;
+
+	radio_disable();
+	RF_postCmd(driver_data->rf.handle, &driver_data->rf.cmd.nop, RF_PriorityNormal,
+		   isr_latency_callback, RF_EVENT_ISR_MASK);
+
+	while (isr_latency_status != ISR_LATENCY_DONE) {
+	}
+	isr_latency -= HAL_TICKER_TICKS_TO_US(cntr_cnt_get());
+
+	irq_disable(LL_RADIO_IRQn);
+}
+
+static const char *const rf_get_command_string(RF_CmdHandle commandNo)
 {
 	switch (commandNo) {
 	case CMD_FS:
@@ -686,7 +621,7 @@ static const char *const commandNo_to_string(RF_CmdHandle commandNo)
 	return "unknown";
 }
 
-static const char *const ble_status_to_string(uint16_t status)
+static const char *const rf_get_status_string(uint16_t status)
 {
 	switch (status) {
 	case IDLE:
@@ -790,7 +725,7 @@ static const char *const ble_status_to_string(uint16_t status)
 	return "unknown";
 }
 
-static void dbg_event(RF_EventMask event)
+static void rf_log_dbg_event_mask(RF_EventMask event)
 {
 	if (event & RF_EventCmdDone) {
 		LOG_DBG("Command done");
@@ -895,737 +830,3 @@ static void dbg_event(RF_EventMask event)
 		LOG_DBG("Command preempted");
 	}
 }
-
-static inline bool pdu_is_adv(uint32_t access_address)
-{
-	return (access_address == PDU_AC_ACCESS_ADDR);
-}
-
-static void isr_radio(RF_Handle handle, RF_CmdHandle command_handle, RF_EventMask event_mask)
-{
-	DEBUG_RADIO_ISR(1);
-
-	RF_Op *rf_op = RF_getCmdOp(handle, command_handle);
-	LOG_DBG("%s (0x%04X) %s (0x%04X)", commandNo_to_string(rf_op->commandNo), rf_op->commandNo,
-		ble_status_to_string(rf_op->status), rf_op->status);
-	dbg_event(event_mask);
-
-	if (event_mask & RADIO_RF_EVENT_MASK_TX_DONE) {
-		if (timer_end_save) {
-			timer_end = isr_timer_end;
-		}
-	}
-
-	if (event_mask & RADIO_RF_EVENT_MASK_RX_DONE) {
-		/* Disable Rx timeout */
-		RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
-
-		if (driver_data->rf.rx.entry->status == DATA_ENTRY_FINISHED) {
-			if (driver_data->rf.rx.entry->config.type == DATA_ENTRY_TYPE_GEN) {
-				uint8_t *data = &driver_data->rf.rx.entry->data;
-
-				/* - PDU header
-				 * - PDU body length (advert or data)
-				 * - PDU body
-				 * - CRC
-				 * - RSSI
-				 * - //Channel (and bIgnore, bCrcErr)
-				 * - //PHY mode (byte not present if ble4_cmd)
-				 * - Timestamp (32 bit)
-				 */
-				uint16_t data_index = 0;
-				uint8_t a_d = data[data_index++];
-				uint16_t data_size = data[data_index++] + 2;
-
-				if (driver_data->lll_rx_pdu != NULL) {
-					memcpy(driver_data->lll_rx_pdu, data, data_size);
-				}
-				data_index += data_size - 2;
-
-				uint32_t crc = 0;
-				crc |= data[data_index++] << 0;
-				crc |= data[data_index++] << 8;
-				crc |= data[data_index++] << 16;
-				crc_valid = true;
-
-				int8_t this_rssi = data[data_index++];
-
-				ratmr_t timestamp = 0;
-				timestamp |= data[data_index++] << 0;
-				timestamp |= data[data_index++] << 8;
-				timestamp |= data[data_index++] << 16;
-				timestamp |= data[data_index++] << 24;
-
-				LOG_WRN("rx_entry | ad %u | ds %u | crc 0x%08X | rssi %i | ts %u |",
-					a_d, data_size, crc, this_rssi, timestamp);
-				struct pdu_adv *pdu_adv = (struct pdu_adv *)data;
-				LOG_WRN("pdu | type %u | rfu %u | ch %u | tx %u | rx %u | len %u |",
-					pdu_adv->type, pdu_adv->rfu, pdu_adv->chan_sel,
-					pdu_adv->tx_addr, pdu_adv->rx_addr, pdu_adv->len);
-				LOG_HEXDUMP_WRN(data, data_size, "RX");
-
-				rtc_start = timestamp;
-
-				/* Add to AA time, PDU + CRC time */
-				isr_timer_end = rtc_start +
-						HAL_TICKER_US_TO_TICKS(data_size + sizeof(crc - 1));
-
-				if (timer_aa_save) {
-					timer_aa = isr_timer_aa;
-				}
-
-				if (timer_end_save) {
-					timer_end = isr_timer_end; /* from pkt_rx() */
-				}
-			}
-
-			driver_data->rf.rx.entry = RFQueue_nextEntry(driver_data->rf.rx.entry);
-		} else {
-			if ((event_mask & RF_EventRxEmpty) &&
-			    (driver_data->rf.rx.entry->status == DATA_ENTRY_PENDING)) {
-				LOG_WRN("rf_op might be missing it's rx dataQueue_t");
-			}
-			event_mask &= ~(RADIO_RF_EVENT_MASK_RX_DONE);
-		}
-	}
-
-	if (event_mask & RADIO_RF_EVENT_MASK_CMD_DONE) {
-		/* Disable both comparators */
-		RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
-	}
-
-	radio_isr_cb_rf_param_t rf_param = {
-		.handle = handle,
-		.command_handle = command_handle,
-		.event_mask = event_mask,
-	};
-	radio_isr_cb(radio_isr_cb_param, rf_param);
-
-	DEBUG_RADIO_ISR(0);
-}
-
-void radio_isr_set(radio_isr_cb_t cb, void *param)
-{
-	irq_disable(LL_RADIO_IRQn);
-
-	radio_isr_cb_param = param;
-	radio_isr_cb = cb;
-
-	/* Clear pending interrupts */
-	ClearPendingIRQ(LL_RADIO_IRQn);
-
-	irq_enable(LL_RADIO_IRQn);
-}
-
-static void rat_deferred_hcto_callback(RF_Handle handle, RF_RatHandle rat_handle,
-				       RF_EventMask event_mask, uint32_t compare_capture_time)
-{
-	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
-	if (rat_handle == driver_data->rf.rat.hcto_handle) {
-		LOG_DBG("rf_op timeout - cancel");
-		RF_cancelCmd(rfBleHandle, driver_data->rf.cmd.active_handle, RF_ABORT_GRACEFULLY);
-		driver_data->rf.cmd.active_handle = -1;
-	}
-}
-
-static void ble_cc13xx_cc26xx_data_init(void)
-{
-	driver_data->rf.rx.entry = RFQueue_defineQueue(
-		&driver_data->rf.rx.queue, driver_data->rf.rx.buffer,
-		sizeof(driver_data->rf.rx.buffer), RF_RX_ENTRY_BUFFER_SIZE, RF_RX_BUFFER_SIZE);
-
-	driver_data->rf.tx.entry = RFQueue_defineQueue(
-		&driver_data->rf.tx.queue, driver_data->rf.tx.buffer,
-		sizeof(driver_data->rf.tx.buffer), RF_TX_ENTRY_BUFFER_SIZE, RF_TX_BUFFER_SIZE);
-
-	RF_RatConfigCompare_init((RF_RatConfigCompare *)&driver_data->rf.rat.hcto_compare);
-	driver_data->rf.rat.hcto_compare.callback = rat_deferred_hcto_callback;
-}
-
-/*
- * A (high) arbitrarily-chosen 32-bit number that the RAT will (likely) not
- * encounter soon after reset
- */
-#define ISR_LATENCY_MAGIC 0xfedcba98
-static void isr_latency_cb(void *param, radio_isr_cb_rf_param_t rf_param)
-{
-	ARG_UNUSED(rf_param);
-
-	uint32_t t1 = *(uint32_t *)param;
-	uint32_t t2 = HAL_TICKER_TICKS_TO_US(cntr_cnt_get());
-
-	isr_latency = t2 - t1;
-	/* Mark as done */
-	*(uint32_t *)param = ISR_LATENCY_MAGIC;
-}
-
-static void get_isr_latency(void)
-{
-	volatile uint32_t isr_latency_param;
-
-	radio_isr_set(isr_latency_cb, (void *)&isr_latency_param);
-
-	/* Reset TMR to zero */
-	/* (not necessary using the ISR_LATENCY_MAGIC approach) */
-
-	isr_latency_param = HAL_TICKER_TICKS_TO_US(cntr_cnt_get());
-
-	radio_disable();
-
-	while (isr_latency_param != ISR_LATENCY_MAGIC) {
-	}
-
-	irq_disable(LL_RADIO_IRQn);
-}
-
-void radio_setup(void)
-{
-	RF_Params rfBleParams;
-	RF_Params_init(&rfBleParams);
-
-	ble_cc13xx_cc26xx_data_init();
-
-	rfBleHandle = RF_open(&rfObject, &RF_modeBle,
-			      (RF_RadioSetup *)&driver_data->rf.cmd.ble5_radio_setup, &rfBleParams);
-	LL_ASSERT(rfBleHandle);
-
-	driver_data->rf.cmd.fs.frequency = channel_frequency_table[driver_data->channel].frequency;
-	RF_runCmd(rfBleHandle, (RF_Op *)&driver_data->rf.cmd.fs, RF_PriorityNormal, NULL,
-		  RF_EventLastCmdDone);
-
-	/* Get warmpup times. They are used in TIFS calculations */
-	tx_warmup = 0; /* us */
-	rx_warmup = 0; /* us */
-	get_isr_latency();
-}
-
-void radio_reset(void)
-{
-	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
-	RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
-
-	irq_disable(LL_RADIO_IRQn);
-}
-
-void radio_stop(void)
-{
-	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
-	RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
-}
-
-void radio_phy_set(uint8_t phy, uint8_t flags)
-{
-	ARG_UNUSED(flags);
-
-	switch (phy) {
-	case BIT(1):
-		driver_data->phy = RF_PHY_2MBS;
-		break;
-
-	case BIT(2):
-		driver_data->phy = RF_PHY_CODED;
-		break;
-
-	case BIT(0):
-	default:
-		driver_data->phy = RF_PHY_1MBS;
-		break;
-	}
-}
-
-void radio_tx_power_set(int8_t power)
-{
-	LOG_DBG("%u", power);
-	RF_setTxPower(rfBleHandle, RF_TxPowerTable_findValue(
-					   (RF_TxPowerTable_Entry *)RF_BLE_txPowerTable, power));
-}
-
-void radio_tx_power_max_set(void)
-{
-	radio_tx_power_set(RF_TxPowerTable_MAX_DBM);
-}
-
-void radio_freq_chan_set(uint32_t chan)
-{
-	LOG_DBG("%u", chan);
-	LL_ASSERT(chan < RF_CHANNEL_COUNT);
-
-	driver_data->channel = chan;
-}
-
-void radio_whiten_iv_set(uint32_t iv)
-{
-	/* do nothing */
-}
-
-void radio_aa_set(const uint8_t *aa)
-{
-	driver_data->access_address = *(uint32_t *)aa;
-}
-
-void radio_pkt_rx_set(void *rx_packet)
-{
-	driver_data->lll_rx_pdu = (uint8_t *)rx_packet;
-}
-
-dataQueue_t *radio_get_rf_data_queue(void)
-{
-	return &driver_data->rf.rx.queue;
-}
-
-rfc_CMD_BLE5_GENERIC_RX_t *radio_get_rf_generic_rx(void)
-{
-	return &driver_data->rf.cmd.ble5_generic_rx;
-}
-
-uint32_t radio_tx_ready_delay_get(uint8_t phy, uint8_t flags)
-{
-	return tx_warmup;
-}
-
-uint32_t radio_tx_chain_delay_get(uint8_t phy, uint8_t flags)
-{
-	return 0;
-}
-
-uint32_t radio_rx_ready_delay_get(uint8_t phy, uint8_t flags)
-{
-	return rx_warmup;
-}
-
-uint32_t radio_rx_chain_delay_get(uint8_t phy, uint8_t flags)
-{
-	return 16 + 2 * Rx_OVHD + RX_MARGIN + isr_latency + Rx_OVHD;
-}
-
-void radio_disable(void)
-{
-	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
-
-	RF_runDirectCmd(rfBleHandle, CMD_ABORT);
-	RF_runImmediateCmd(rfBleHandle, (uint32_t *)&driver_data->rf.cmd.clear_rx);
-
-	/* generate interrupt to get into isr_radio */
-	RF_postCmd(rfBleHandle, (RF_Op *)&driver_data->rf.cmd.nop, RF_PriorityNormal, isr_radio,
-		   RF_EventLastCmdDone);
-
-	driver_data->rf.op = NULL;
-	driver_data->lll_rx_pdu = NULL;
-}
-
-void radio_status_reset(void)
-{
-	radio_trx = 0;
-}
-
-uint32_t radio_is_ready(void)
-{
-	/* Always false. LLL expects the radio not to be in idle/Tx/Rx state */
-	return 0;
-}
-
-uint32_t radio_is_done(void)
-{
-	return radio_trx;
-}
-
-uint32_t radio_has_disabled(void)
-{
-	/* Not used */
-	return 0;
-}
-
-uint32_t radio_is_idle(void)
-{
-	return 1;
-}
-
-void radio_crc_configure(uint32_t polynomial, uint32_t iv)
-{
-	driver_data->polynomial = polynomial;
-	driver_data->iv = iv;
-}
-
-uint32_t radio_crc_is_valid(void)
-{
-	bool r = crc_valid;
-
-	/* only valid for first call */
-	crc_valid = false;
-
-	return r;
-}
-
-void *radio_pkt_empty_get(void)
-{
-	return _pkt_empty;
-}
-
-void *radio_pkt_scratch_get(void)
-{
-	return _pkt_scratch;
-}
-
-#if defined(CONFIG_BT_CTLR_LE_ENC) && defined(HAL_RADIO_PDU_LEN_MAX) &&                            \
-	(!defined(CONFIG_BT_CTLR_DATA_LENGTH_MAX) ||                                               \
-	 (CONFIG_BT_CTLR_DATA_LENGTH_MAX < (HAL_RADIO_PDU_LEN_MAX - 4)))
-static uint8_t MALIGN(4) _pkt_decrypt[MAX((HAL_RADIO_PDU_LEN_MAX + 3), PDU_AC_LL_SIZE_MAX)];
-
-void *radio_pkt_decrypt_get(void)
-{
-	return _pkt_decrypt;
-}
-#elif !defined(HAL_RADIO_PDU_LEN_MAX)
-#error "Undefined HAL_RADIO_PDU_LEN_MAX."
-#endif
-
-#if defined(CONFIG_BT_CTLR_ADV_ISO) || defined(CONFIG_BT_CTLR_SYNC_ISO)
-/* Dedicated Rx PDU Buffer for Control PDU independent of node_rx with BIS Data
- * PDU buffer. Note this buffer will be used to store whole PDUs, not just the BIG control payload.
- */
-static uint8_t pkt_big_ctrl[offsetof(struct pdu_bis, payload) + sizeof(struct pdu_big_ctrl)];
-
-void *radio_pkt_big_ctrl_get(void)
-{
-	return pkt_big_ctrl;
-}
-#endif /* CONFIG_BT_CTLR_ADV_ISO || CONFIG_BT_CTLR_SYNC_ISO */
-
-void radio_switch_complete_and_rx(uint8_t phy_rx)
-{
-	/* the margin is used to account for any overhead in radio switching */
-	next_warmup = rx_warmup + RX_MARGIN;
-}
-
-void radio_switch_complete_and_tx(uint8_t phy_rx, uint8_t flags_rx, uint8_t phy_tx,
-				  uint8_t flags_tx)
-{
-	/* the margin is used to account for any overhead in radio switching */
-	next_warmup = tx_warmup + TX_MARGIN;
-}
-
-void radio_switch_complete_and_disable(void)
-{
-	RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
-	driver_data->rf.op = NULL;
-	driver_data->lll_rx_pdu = NULL;
-}
-
-void radio_rssi_measure(void)
-{
-	rssi = RF_getRssi(rfBleHandle);
-}
-
-uint32_t radio_rssi_get(void)
-{
-	return (uint32_t)-rssi;
-}
-
-void radio_rssi_status_reset(void)
-{
-	rssi = RF_GET_RSSI_ERROR_VAL;
-}
-
-uint32_t radio_rssi_is_ready(void)
-{
-	return (rssi != RF_GET_RSSI_ERROR_VAL);
-}
-
-void radio_filter_configure(uint8_t bitmask_enable, uint8_t bitmask_addr_type, uint8_t *bdaddr)
-{
-}
-
-void radio_filter_disable(void)
-{
-}
-
-void radio_filter_status_reset(void)
-{
-}
-
-uint32_t radio_filter_has_match(void)
-{
-	return true;
-}
-
-uint32_t radio_filter_match_get(void)
-{
-	return 0;
-}
-
-void radio_tmr_status_reset(void)
-{
-	timer_aa_save = 0;
-	timer_end_save = 0;
-}
-
-void radio_tmr_tx_status_reset(void)
-{
-}
-
-void radio_tmr_rx_status_reset(void)
-{
-}
-
-void radio_tmr_tifs_set(uint32_t tifs)
-{
-	timer_tifs = tifs;
-}
-
-/* Start the radio after ticks_start (ticks) + remainder (us) time */
-static uint32_t radio_tmr_start_hlp(RF_Op *rf_op, uint32_t ticks_start, uint32_t remainder)
-{
-	uint32_t now = cntr_cnt_get();
-
-	/* Save it for later */
-	// rtc_start = ticks_start;
-
-	/* Convert ticks to us and use just EVENT_TMR */
-	rtc_diff_start_us = HAL_TICKER_TICKS_TO_US(rtc_start - now);
-
-	skip_hcto = 0;
-	if (rtc_diff_start_us > 0x80000000) {
-		LOG_DBG("dropped command");
-		/* ticks_start already passed. Don't start the radio */
-		rtc_diff_start_us = 0;
-
-		/* Ignore time out as well */
-		skip_hcto = 1;
-		remainder = 0;
-		return remainder;
-	}
-
-	if (RFQueue_isFull(&driver_data->rf.rx.queue, driver_data->rf.rx.entry)) {
-		LOG_WRN("rx queue full");
-		return remainder;
-	}
-
-	if (remainder <= MIN_CMD_TIME) {
-		remainder = 0;
-	}
-	timer_ready = remainder;
-
-	driver_data->rf.op = rf_op;
-
-	rfc_ble5RadioOp_t *ble_radio_op = (rfc_ble5RadioOp_t *)driver_data->rf.op;
-	ble_radio_op->channel = driver_data->channel;
-	ble_radio_op->phyMode.mainMode = driver_data->phy;
-	ble_radio_op->startTime = now + remainder;
-	ble_radio_op->startTrigger.triggerType = TRIG_ABSTIME;
-	ble_radio_op->startTrigger.pastTrig = true;
-
-	LOG_DBG("%s (0x%04X) ch %u starts in %u", commandNo_to_string(ble_radio_op->commandNo),
-		ble_radio_op->commandNo, ble_radio_op->channel, (ble_radio_op->startTime - now));
-
-	driver_data->rf.cmd.active_handle = RF_postCmd(
-		rfBleHandle, driver_data->rf.op, RF_PriorityNormal, isr_radio, RF_EVENT_ISR_MASK);
-
-	return remainder;
-}
-
-uint32_t radio_tmr_start(RF_Op *rf_op, uint32_t ticks_start, uint32_t remainder)
-{
-	if ((!(remainder / 1000000UL)) || (remainder & 0x80000000)) {
-		ticks_start--;
-		remainder += 30517578UL;
-	}
-	remainder /= 1000000UL;
-
-	return radio_tmr_start_hlp(rf_op, ticks_start, remainder);
-}
-
-uint32_t radio_tmr_start_tick(RF_Op *rf_op, uint32_t tick)
-{
-	/* Setup compare event with min. 1 us offset */
-	uint32_t remainder_us = 1;
-
-	return radio_tmr_start_hlp(rf_op, tick, remainder_us);
-}
-
-uint32_t radio_tmr_start_us(RF_Op *rf_op, uint32_t start_us)
-{
-	/* Setup compare event with min. 1 us offset */
-	uint32_t remainder_us = 1;
-
-	return radio_tmr_start_hlp(rf_op, HAL_TICKER_US_TO_TICKS(start_us), remainder_us);
-}
-
-uint32_t radio_tmr_start_now(RF_Op *rf_op)
-{
-	return radio_tmr_start(rf_op, cntr_cnt_get(), 0);
-}
-
-uint32_t radio_tmr_start_get(void)
-{
-	return rtc_start;
-}
-
-void radio_tmr_stop(void)
-{
-	/* Deep Sleep Mode (DSM)? */
-}
-
-void radio_tmr_hcto_configure(uint32_t hcto)
-{
-	if (skip_hcto) {
-		skip_hcto = 0;
-		return;
-	}
-
-	RF_ratDisableChannel(rfBleHandle, driver_data->rf.rat.hcto_handle);
-
-	driver_data->rf.rat.hcto_compare.timeout = cntr_cnt_get() + HAL_TICKER_US_TO_TICKS(hcto);
-	LOG_DBG("cntr %u (%uus) to %u (%uus)", cntr_cnt_get(),
-		HAL_TICKER_TICKS_TO_US(cntr_cnt_get()), driver_data->rf.rat.hcto_compare.timeout,
-		HAL_TICKER_TICKS_TO_US(driver_data->rf.rat.hcto_compare.timeout));
-
-	driver_data->rf.rat.hcto_handle =
-		RF_ratCompare(rfBleHandle, &driver_data->rf.rat.hcto_compare, NULL);
-}
-
-void radio_tmr_aa_capture(void)
-{
-	timer_aa_save = 1;
-}
-
-uint32_t radio_tmr_aa_get(void)
-{
-	LOG_DBG("return tmr_aa (%u) - rtc_diff_start_us (%u) = %u", timer_aa, rtc_diff_start_us,
-		timer_aa - rtc_diff_start_us);
-	return timer_aa - rtc_diff_start_us;
-}
-
-static uint32_t radio_timer_aa;
-
-void radio_tmr_aa_save(uint32_t aa)
-{
-	LOG_DBG("set radio_timer_aa = %u", aa);
-	radio_timer_aa = aa;
-}
-
-uint32_t radio_tmr_aa_restore(void)
-{
-	LOG_DBG("return radio_timer_aa = %u", radio_timer_aa);
-	return radio_timer_aa;
-}
-
-uint32_t radio_tmr_ready_get(void)
-{
-	LOG_DBG("return tmr_ready (%u) - rtc_diff_start_us (%u) = %u", timer_ready,
-		rtc_diff_start_us, timer_ready - rtc_diff_start_us);
-	return timer_ready - rtc_diff_start_us;
-}
-
-static uint32_t radio_timer_ready;
-
-void radio_tmr_ready_save(uint32_t ready)
-{
-	radio_timer_ready = ready;
-}
-
-uint32_t radio_tmr_ready_restore(void)
-{
-	return radio_timer_ready;
-}
-
-void radio_tmr_end_capture(void)
-{
-	timer_end_save = 1;
-}
-
-uint32_t radio_tmr_end_get(void)
-{
-	return timer_end - rtc_start;
-}
-
-uint32_t radio_tmr_tifs_base_get(void)
-{
-	return radio_tmr_end_get();
-}
-
-#if defined(CONFIG_BT_CTLR_SW_SWITCH_SINGLE_TIMER)
-static uint32_t timer_sample_val;
-#endif /* CONFIG_BT_CTLR_SW_SWITCH_SINGLE_TIMER */
-
-void radio_tmr_sample(void)
-{
-#if defined(CONFIG_BT_CTLR_SW_SWITCH_SINGLE_TIMER)
-
-#else /* !CONFIG_BT_CTLR_SW_SWITCH_SINGLE_TIMER */
-
-#endif /* !CONFIG_BT_CTLR_SW_SWITCH_SINGLE_TIMER */
-}
-
-uint32_t radio_tmr_sample_get(void)
-{
-#if defined(CONFIG_BT_CTLR_SW_SWITCH_SINGLE_TIMER)
-	return timer_sample_val;
-#else  /* !CONFIG_BT_CTLR_SW_SWITCH_SINGLE_TIMER */
-	return 0;
-#endif /* !CONFIG_BT_CTLR_SW_SWITCH_SINGLE_TIMER */
-}
-
-static void *radio_ccm_ext_rx_pkt_set(struct ccm *cnf, uint8_t phy, uint8_t pdu_type, void *pkt)
-{
-	return _pkt_scratch;
-}
-
-void *radio_ccm_rx_pkt_set(struct ccm *cnf, uint8_t phy, void *pkt)
-{
-	return radio_ccm_ext_rx_pkt_set(cnf, phy, RADIO_PKT_CONF_PDU_TYPE_DC, pkt);
-}
-
-void *radio_ccm_iso_rx_pkt_set(struct ccm *cnf, uint8_t phy, uint8_t pdu_type, void *pkt)
-{
-	return radio_ccm_ext_rx_pkt_set(cnf, phy, pdu_type, pkt);
-}
-
-static void *radio_ccm_ext_tx_pkt_set(struct ccm *cnf, uint8_t pdu_type, void *pkt)
-{
-	return _pkt_scratch;
-}
-
-void *radio_ccm_tx_pkt_set(struct ccm *cnf, void *pkt)
-{
-	return radio_ccm_ext_tx_pkt_set(cnf, RADIO_PKT_CONF_PDU_TYPE_DC, pkt);
-}
-
-void *radio_ccm_iso_tx_pkt_set(struct ccm *cnf, uint8_t pdu_type, void *pkt)
-{
-	return radio_ccm_ext_tx_pkt_set(cnf, pdu_type, pkt);
-}
-
-uint32_t radio_ccm_is_done(void)
-{
-	return 0;
-}
-
-uint32_t radio_ccm_mic_is_valid(void)
-{
-	return 0;
-}
-
-#if defined(CONFIG_BT_CTLR_PRIVACY)
-void radio_ar_configure(uint32_t nirk, void *irk, uint8_t flags)
-{
-}
-
-uint32_t radio_ar_match_get(void)
-{
-	return 0;
-}
-
-void radio_ar_status_reset(void)
-{
-}
-
-uint32_t radio_ar_has_match(void)
-{
-	return 0;
-}
-
-uint8_t radio_ar_resolve(const uint8_t *addr)
-{
-	return 0;
-}
-#endif /* CONFIG_BT_CTLR_PRIVACY */

@@ -13,16 +13,9 @@ void lll_abort_cb(struct lll_prepare_param *prepare_param, void *param);
 uint32_t lll_event_offset_get(struct ull_hdr *ull);
 uint32_t lll_preempt_calc(struct ull_hdr *ull, uint8_t ticker_id, uint32_t ticks_at_event);
 
-void lll_radio_chan_set(uint32_t chan);
-
-void lll_isr_tx_status_reset(void);
-void lll_isr_rx_status_reset(void);
-void lll_isr_tx_sub_status_reset(void);
-void lll_isr_rx_sub_status_reset(void);
-void lll_isr_status_reset(void);
 void lll_isr_abort(void *param);
-void lll_isr_done(void *param, radio_isr_cb_rf_param_t rf_param);
+void lll_isr_done(void *param);
 void lll_isr_cleanup(void *param);
-void lll_isr_early_abort(void *param, radio_isr_cb_rf_param_t rf_param);
+void lll_isr_early_abort(void *param);
 
-void lll_isr_conn(void *param, radio_isr_cb_rf_param_t rf_param);
+void lll_isr_conn(void *param);

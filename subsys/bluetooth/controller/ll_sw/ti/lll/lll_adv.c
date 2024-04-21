@@ -19,7 +19,7 @@
 #include "hal/debug.h"
 #include "hal/radio.h"
 #include "hal/ticker.h"
-#include "hal/cc13xx_cc26xx/radio/RFQueue.h"
+#include "hal/cc13xx_cc26xx/radio/rf_queue.h"
 
 #include "util/mem.h"
 #include "util/memq.h"

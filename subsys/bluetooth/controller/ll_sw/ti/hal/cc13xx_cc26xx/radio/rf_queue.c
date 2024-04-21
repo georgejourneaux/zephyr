@@ -2,28 +2,28 @@
 #include <stdlib.h>
 
 /* clang-format off */
-#include "RFQueue.h"
+#include "rf_queue.h"
 #include <ti/devices/DeviceFamily.h>
 #include DeviceFamily_constructPath(driverlib/rf_data_entry.h)
 /* clang-format on */
 
-bool RFQueue_isFull(dataQueue_t *queue, rfc_dataEntryGeneral_t *current_entry)
+bool rf_queue_is_full(dataQueue_t *queue, rfc_dataEntryGeneral_t *current_entry)
 {
 	return ((current_entry->status != DATA_ENTRY_PENDING) &&
 		((uint8_t *)current_entry ==
 		 ((rfc_dataEntryGeneral_t *)queue->pCurrEntry)->pNextEntry));
 }
 
-rfc_dataEntryGeneral_t *RFQueue_nextEntry(rfc_dataEntryGeneral_t *entry)
+rfc_dataEntryGeneral_t *rf_queue_next_entry(rfc_dataEntryGeneral_t *entry)
 {
 	/* Set status to pending */
 	entry->status = DATA_ENTRY_PENDING;
 	return ((rfc_dataEntryGeneral_t *)entry->pNextEntry);
 }
 
-rfc_dataEntryGeneral_t *RFQueue_defineQueue(dataQueue_t *queue, uint8_t *buffer,
-					    uint16_t buffer_size, uint8_t number_of_entries,
-					    uint16_t length)
+rfc_dataEntryGeneral_t *rf_queue_define_queue(dataQueue_t *queue, uint8_t *buffer,
+					      uint16_t buffer_size, uint8_t number_of_entries,
+					      uint16_t length)
 {
 
 	if (buffer_size < RF_QUEUE_DATA_ENTRY_BUFFER_SIZE(number_of_entries, length)) {

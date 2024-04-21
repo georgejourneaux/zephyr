@@ -76,7 +76,6 @@ static inline void done_inc(void);
 static inline bool is_done_sync(void);
 static inline struct lll_event *prepare_dequeue_iter_ready_get(uint8_t *idx);
 static inline struct lll_event *resume_enqueue(lll_prepare_cb_t resume_cb);
-static void isr_race(void *param, radio_isr_cb_rf_param_t rf_param);
 
 #if !defined(CONFIG_BT_CTLR_LOW_LAT)
 static uint32_t preempt_ticker_start(struct lll_event *first, struct lll_event *prev,
@@ -463,15 +462,9 @@ uint32_t lll_preempt_calc(struct ull_hdr *ull, uint8_t ticker_id, uint32_t ticks
 	return 0U;
 }
 
-void lll_radio_chan_set(uint32_t chan)
-{
-	radio_freq_chan_set(chan);
-	radio_whiten_iv_set(chan);
-}
-
 uint32_t lll_radio_is_idle(void)
 {
-	return radio_is_idle();
+	return 1;
 }
 
 uint32_t lll_radio_tx_ready_delay_get(uint8_t phy, uint8_t flags)
@@ -499,42 +492,6 @@ int8_t lll_radio_tx_pwr_floor(int8_t tx_pwr_lvl)
 	return RADIO_TXP_DEFAULT;
 }
 
-void lll_isr_tx_status_reset(void)
-{
-	radio_status_reset();
-	radio_tmr_status_reset();
-}
-
-void lll_isr_rx_status_reset(void)
-{
-	radio_status_reset();
-	radio_tmr_status_reset();
-	radio_rssi_status_reset();
-}
-
-void lll_isr_tx_sub_status_reset(void)
-{
-	radio_status_reset();
-	radio_tmr_tx_status_reset();
-}
-
-void lll_isr_rx_sub_status_reset(void)
-{
-	radio_status_reset();
-	radio_tmr_rx_status_reset();
-}
-
-void lll_isr_status_reset(void)
-{
-	radio_status_reset();
-	radio_tmr_status_reset();
-	radio_filter_status_reset();
-	if (IS_ENABLED(CONFIG_BT_CTLR_PRIVACY)) {
-		radio_ar_status_reset();
-	}
-	radio_rssi_status_reset();
-}
-
 inline void lll_isr_abort(void *param)
 {
 	lll_isr_status_reset();
@@ -550,12 +507,6 @@ void lll_isr_cleanup(void *param)
 {
 	int err;
 
-	radio_isr_set(isr_race, param);
-	if (!radio_is_idle()) {
-		radio_disable();
-	}
-
-	radio_tmr_stop();
 	radio_stop();
 
 	err = lll_hfclock_off();
@@ -568,11 +519,6 @@ void lll_isr_early_abort(void *param, radio_isr_cb_rf_param_t rf_param)
 {
 	if (false == (rf_param.event_mask & RADIO_RF_EVENT_MASK_RX_DONE)) {
 		return;
-	}
-
-	radio_isr_set(isr_race, param);
-	if (!radio_is_idle()) {
-		radio_disable();
 	}
 
 	int err = lll_hfclock_off();
@@ -739,15 +685,6 @@ static inline struct lll_event *resume_enqueue(lll_prepare_cb_t resume_cb)
 
 	return ull_prepare_enqueue(event.curr.is_abort_cb, event.curr.abort_cb, &prepare_param,
 				   resume_cb, 1);
-}
-
-static void isr_race(void *param, radio_isr_cb_rf_param_t rf_param)
-{
-	if (false == (rf_param.event_mask & RADIO_RF_EVENT_MASK_RX_DONE)) {
-		return;
-	}
-	/* NOTE: lll_disable could have a race with ... */
-	radio_status_reset();
 }
 
 #if !defined(CONFIG_BT_CTLR_LOW_LAT)

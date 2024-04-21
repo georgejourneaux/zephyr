@@ -9,7 +9,7 @@
 
 #include "hal/ccm.h"
 #include "hal/radio.h"
-#include "hal/cc13xx_cc26xx/radio/RFQueue.h"
+#include "hal/cc13xx_cc26xx/radio/rf_queue.h"
 
 #include "util/mem.h"
 #include "util/memq.h"
@@ -138,9 +138,6 @@ void lll_conn_isr_rx(void *param)
 		radio_isr_set(lll_isr_conn, param);
 		radio_disable();
 
-		/* assert if radio started tx before being disabled */
-		LL_ASSERT(!radio_is_ready());
-
 		lll_conn_isr_rx_exit(lll, node_rx, tx_release, is_rx_enqueue);
 		return;
 	}
@@ -181,11 +178,6 @@ void lll_conn_isr_rx(void *param)
 		/* Event done for central */
 		if (!lll->role) {
 			radio_disable();
-
-			/* assert if radio packet ptr is not set and radio
-			 * started tx.
-			 */
-			LL_ASSERT(!radio_is_ready());
 
 			/* Restore state if last transmitted was empty PDU */
 			lll->empty = is_empty_pdu_tx_retry;
@@ -244,9 +236,6 @@ void lll_conn_isr_rx(void *param)
 	radio_gpio_pa_lna_enable(pa_lna_enable_us);
 #endif /* HAL_RADIO_GPIO_HAVE_PA_PIN */
 
-	/* assert if radio packet ptr is not set and radio started tx */
-	LL_ASSERT(!radio_is_ready());
-
 	lll_conn_isr_rx_exit(lll, node_rx, tx_release, is_rx_enqueue);
 }
 
@@ -276,9 +265,6 @@ void lll_conn_isr_tx(void *param)
 #endif /* !CONFIG_BT_CTLR_DF_PHYEND_OFFSET_COMPENSATION_ENABLE */
 
 	lll_conn_rx_pkt_set(lll);
-
-	/* assert if radio packet ptr is not set and radio started rx */
-	LL_ASSERT(!radio_is_ready());
 
 	/* +/- 2us active clock jitter, +1 us hcto compensation */
 	hcto = radio_tmr_tifs_base_get() + EVENT_IFS_US + (EVENT_CLOCK_JITTER_US << 1) +
@@ -425,7 +411,8 @@ void lll_conn_pdu_tx_prep(struct lll_conn *lll, struct pdu_data **pdu_data_tx)
 	if (lll->empty || !link) {
 		lll->empty = 1U;
 
-		p = (struct pdu_data *)radio_pkt_empty_get();
+#warning "TODO - get empty packet?"
+		// p = (struct pdu_data *)radio_pkt_empty_get();
 		if (link) {
 			p->md = 1U;
 		} else {
@@ -553,7 +540,8 @@ static int isr_rx_pdu(struct lll_conn *lll, struct pdu_data *pdu_data_rx, uint8_
 		} else {
 			lll->empty = 0;
 
-			pdu_data_tx = (void *)radio_pkt_empty_get();
+#warning "TODO - get empty packet?"
+			// pdu_data_tx = (void *)radio_pkt_empty_get();
 			if (IS_ENABLED(CONFIG_BT_CENTRAL) && !lll->role && !pdu_data_rx->md) {
 				*is_done = !pdu_data_tx->md;
 			}

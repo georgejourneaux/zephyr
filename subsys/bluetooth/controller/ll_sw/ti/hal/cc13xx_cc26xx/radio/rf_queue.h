@@ -17,10 +17,10 @@
 	(numEntries *                                                                              \
 	 (RF_QUEUE_DATA_ENTRY_HEADER_SIZE + dataSize + RF_QUEUE_QUEUE_ALIGN_PADDING(dataSize)))
 
-bool RFQueue_isFull(dataQueue_t *queue, rfc_dataEntryGeneral_t *current_entry);
-rfc_dataEntryGeneral_t *RFQueue_nextEntry(rfc_dataEntryGeneral_t *current_entry);
-rfc_dataEntryGeneral_t *RFQueue_defineQueue(dataQueue_t *queue, uint8_t *buffer,
-					    uint16_t buffer_size, uint8_t number_of_entries,
-					    uint16_t length);
+bool rf_queue_is_full(dataQueue_t *queue, rfc_dataEntryGeneral_t *current_entry);
+rfc_dataEntryGeneral_t *rf_queue_next_entry(rfc_dataEntryGeneral_t *current_entry);
+rfc_dataEntryGeneral_t *rf_queue_define_queue(dataQueue_t *queue, uint8_t *buffer,
+					      uint16_t buffer_size, uint8_t number_of_entries,
+					      uint16_t length);
 
 #endif /* RF_QUEUE_H */

@@ -95,7 +95,7 @@ zephyr_library_sources(
   hal/cc13xx_cc26xx/ecb.c
   hal/cc13xx_cc26xx/mayfly.c
   hal/cc13xx_cc26xx/radio/radio.c
-  hal/cc13xx_cc26xx/radio/RFQueue.c
+  hal/cc13xx_cc26xx/radio/rf_queue.c
   hal/cc13xx_cc26xx/swi.c
   hal/cc13xx_cc26xx/ticker.c
   )
