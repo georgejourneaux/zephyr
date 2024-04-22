@@ -13,9 +13,8 @@ void lll_abort_cb(struct lll_prepare_param *prepare_param, void *param);
 uint32_t lll_event_offset_get(struct ull_hdr *ull);
 uint32_t lll_preempt_calc(struct ull_hdr *ull, uint8_t ticker_id, uint32_t ticks_at_event);
 
-void lll_isr_abort(void *param);
-void lll_isr_done(void *param);
+void lll_isr_abort(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask);
 void lll_isr_cleanup(void *param);
-void lll_isr_early_abort(void *param);
+void lll_isr_early_abort(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask);
 
 void lll_isr_conn(void *param);

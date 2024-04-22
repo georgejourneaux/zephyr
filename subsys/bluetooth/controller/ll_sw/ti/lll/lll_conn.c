@@ -64,6 +64,8 @@ void lll_conn_prepare_reset(void)
 
 void lll_conn_abort_cb(struct lll_prepare_param *prepare_param, void *param)
 {
+#if 0
+
 	/* NOTE: This is not a prepare being cancelled */
 	if (!prepare_param) {
 		/* Perform event abort here.
@@ -94,10 +96,12 @@ void lll_conn_abort_cb(struct lll_prepare_param *prepare_param, void *param)
 	e->crc_valid = 0U;
 
 	lll_done(param);
+#endif
 }
 
-void lll_isr_conn(void *param, radio_isr_cb_rf_param_t rf_param)
+void lll_isr_conn(void *param)
 {
+#if 0
 	if (rf_param.event_mask & RADIO_RF_EVENT_MASK_TX_DONE) {
 		trx_cnt++;
 		lll_conn_isr_tx(param);
@@ -110,10 +114,12 @@ void lll_isr_conn(void *param, radio_isr_cb_rf_param_t rf_param)
 	if (rf_param.event_mask & RADIO_RF_EVENT_MASK_CMD_DONE) {
 		isr_done(param);
 	}
+#endif
 }
 
 void lll_conn_isr_rx(void *param)
 {
+#if 0
 	if (IS_ENABLED(CONFIG_BT_CTLR_PROFILE_ISR)) {
 		lll_prof_latency_capture();
 	}
@@ -237,10 +243,12 @@ void lll_conn_isr_rx(void *param)
 #endif /* HAL_RADIO_GPIO_HAVE_PA_PIN */
 
 	lll_conn_isr_rx_exit(lll, node_rx, tx_release, is_rx_enqueue);
+#endif
 }
 
 void lll_conn_isr_tx(void *param)
 {
+#if 0
 	struct lll_conn *lll;
 	uint32_t hcto;
 
@@ -354,10 +362,12 @@ void lll_conn_rx_pkt_set(struct lll_conn *lll)
 	{
 		radio_pkt_rx_set(node_rx->pdu);
 	}
+#endif
 }
 
 void lll_conn_tx_pkt_set(struct lll_conn *lll, struct pdu_data *pdu_data_tx)
 {
+#if 0
 #if defined(CONFIG_BT_CTLR_DATA_LENGTH)
 	uint16_t max_tx_octets = lll->dle.eff.max_tx_octets;
 #else  /* !CONFIG_BT_CTLR_DATA_LENGTH */
@@ -400,10 +410,12 @@ void lll_conn_tx_pkt_set(struct lll_conn *lll, struct pdu_data *pdu_data_tx)
 #warning "TODO - send empty packet?"
 		// radio_pkt_tx_set(NULL);
 	}
+#endif
 }
 
 void lll_conn_pdu_tx_prep(struct lll_conn *lll, struct pdu_data **pdu_data_tx)
 {
+#if 0
 	struct node_tx *tx;
 	struct pdu_data *p;
 
@@ -457,6 +469,7 @@ void lll_conn_pdu_tx_prep(struct lll_conn *lll, struct pdu_data **pdu_data_tx)
 	}
 
 	*pdu_data_tx = p;
+#endif
 }
 
 uint8_t lll_conn_force_md_cnt_set(uint8_t force_md_cnt)
@@ -466,6 +479,7 @@ uint8_t lll_conn_force_md_cnt_set(uint8_t force_md_cnt)
 
 static void isr_done(void *param)
 {
+#if 0
 	lll_isr_status_reset();
 
 	struct event_done_extra *e = ull_event_done_extra_get();
@@ -499,11 +513,13 @@ static void isr_done(void *param)
 #endif /* CONFIG_BT_PERIPHERAL */
 
 	lll_isr_cleanup(param);
+#endif
 }
 
 static int isr_rx_pdu(struct lll_conn *lll, struct pdu_data *pdu_data_rx, uint8_t *is_rx_enqueue,
 		      struct node_tx **tx_release, uint8_t *is_done)
 {
+#if 0
 #if defined(CONFIG_BT_CTLR_LE_ENC) && defined(HAL_RADIO_PDU_LEN_MAX) &&                            \
 	(!defined(CONFIG_BT_CTLR_DATA_LENGTH_MAX) ||                                               \
 	 (CONFIG_BT_CTLR_DATA_LENGTH_MAX < (HAL_RADIO_PDU_LEN_MAX - 4)))
@@ -649,13 +665,14 @@ static int isr_rx_pdu(struct lll_conn *lll, struct pdu_data *pdu_data_rx, uint8_
 			*is_rx_enqueue = 1U;
 		}
 	}
-
+#endif
 	return 0;
 }
 
 static void lll_conn_isr_rx_exit(struct lll_conn *lll, struct node_rx_pdu *node_rx,
 				 struct node_tx *tx_release, uint8_t is_rx_enqueue)
 {
+#if 0
 	/* Save the AA captured for the first Rx in connection event */
 	if (!radio_tmr_aa_restore()) {
 		radio_tmr_aa_save(radio_tmr_aa_get());
@@ -725,4 +742,5 @@ static void lll_conn_isr_rx_exit(struct lll_conn *lll, struct node_rx_pdu *node_
 #if defined(CONFIG_BT_CTLR_PROFILE_ISR)
 	lll_prof_send();
 #endif /* CONFIG_BT_CTLR_PROFILE_ISR */
+#endif
 }

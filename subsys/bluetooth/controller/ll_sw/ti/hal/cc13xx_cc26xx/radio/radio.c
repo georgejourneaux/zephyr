@@ -8,7 +8,10 @@
 
 #include <rf_patches/rf_patch_cpe_multi_protocol.h>
 
+#include "hal/cntr.h"
+#include "hal/debug.h"
 #include "hal/radio.h"
+#include "hal/ticker.h"
 #include "hal/cc13xx_cc26xx/ll_irqs.h"
 
 #define LOG_LEVEL CONFIG_BT_HCI_DRIVER_LOG_LEVEL
@@ -154,7 +157,7 @@ typedef struct BLE_CC13XX_CC26XX_RF {
 	RF_Object object;
 	RF_Params params;
 	RF_Mode mode;
-	struct BLE_CC13XX_CC26XX_RF {
+	struct BLE_CC13XX_CC26XX_RF_CMD {
 		rfc_CMD_NOP_t nop;
 		rfc_CMD_FS_t fs;
 		rfc_CMD_CLEAR_RX_t clear_rx;
@@ -361,9 +364,6 @@ uint32_t overrides_ble_coded[] = {
 	HW_REG_OVERRIDE(0x609C, 0x0021), (uint32_t)0xFFFFFFFF};
 
 static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
-	.rf.handle = NULL,
-	.rf.object = {0},
-	.rf.params = {0},
 	.rf.mode =
 		{
 			.rfMode = RF_MODE_AUTO,
@@ -371,78 +371,83 @@ static ble_cc13xx_cc26xx_data_t ble_cc13xx_cc26xx_data = {
 			.mcePatchFxn = 0,
 			.rfePatchFxn = 0,
 		},
-	.rf.cmd = {
-		.fs = {.commandNo = CMD_FS,
-		       .status = IDLE,
-		       .pNextOp = NULL,
-		       .startTime = 0,
-		       .startTrigger.triggerType = TRIG_NOW,
-		       .startTrigger.bEnaCmd = 0,
-		       .startTrigger.triggerNo = 0,
-		       .startTrigger.pastTrig = 0,
-		       .condition.rule = COND_NEVER,
-		       .condition.nSkip = COND_ALWAYS,
-		       .frequency = 0,
-		       .fractFreq = 0,
-		       .synthConf.bTxMode = 0,
-		       .synthConf.refFreq = 0,
-		       .__dummy0 = 0,
-		       .__dummy1 = 0,
-		       .__dummy2 = 0,
-		       .__dummy3 = 0},
+	.rf.cmd =
+		{
+			.fs = {.commandNo = CMD_FS,
+			       .status = IDLE,
+			       .pNextOp = NULL,
+			       .startTime = 0,
+			       .startTrigger.triggerType = TRIG_NOW,
+			       .startTrigger.bEnaCmd = 0,
+			       .startTrigger.triggerNo = 0,
+			       .startTrigger.pastTrig = 0,
+			       .condition.rule = COND_NEVER,
+			       .condition.nSkip = COND_ALWAYS,
+			       .frequency = 0,
+			       .fractFreq = 0,
+			       .synthConf.bTxMode = 0,
+			       .synthConf.refFreq = 0,
+			       .__dummy0 = 0,
+			       .__dummy1 = 0,
+			       .__dummy2 = 0,
+			       .__dummy3 = 0},
 
-		.nop =
-			{
-				.commandNo = CMD_NOP,
-				.status = IDLE,
-				.pNextOp = NULL,
-				.startTime = 0,
-				.startTrigger.triggerType = TRIG_NOW,
-				.startTrigger.bEnaCmd = 0,
-				.startTrigger.triggerNo = 0,
-				.startTrigger.pastTrig = 0,
-				.condition.rule = COND_NEVER,
-				.condition.nSkip = COND_ALWAYS,
-			},
+			.nop =
+				{
+					.commandNo = CMD_NOP,
+					.status = IDLE,
+					.pNextOp = NULL,
+					.startTime = 0,
+					.startTrigger.triggerType = TRIG_NOW,
+					.startTrigger.bEnaCmd = 0,
+					.startTrigger.triggerNo = 0,
+					.startTrigger.pastTrig = 0,
+					.condition.rule = COND_NEVER,
+					.condition.nSkip = COND_ALWAYS,
+				},
 
-		.clear_rx =
-			{
-				.commandNo = CMD_CLEAR_RX,
-				.__dummy0 = 0,
-				.pQueue = NULL,
-			},
+			.clear_rx =
+				{
+					.commandNo = CMD_CLEAR_RX,
+					.__dummy0 = 0,
+					.pQueue = NULL,
+				},
 
-		.ble5_radio_setup = {.commandNo = CMD_BLE5_RADIO_SETUP,
-				     .status = IDLE,
-				     .pNextOp = NULL,
-				     .startTime = 0,
-				     .startTrigger.triggerType = TRIG_NOW,
-				     .startTrigger.bEnaCmd = 0,
-				     .startTrigger.triggerNo = 0,
-				     .startTrigger.pastTrig = 0,
-				     .condition.rule = COND_NEVER,
-				     .condition.nSkip = COND_ALWAYS,
-				     .defaultPhy.mainMode = RF_PHY_1MBS,
-				     .defaultPhy.coding = 0,
-				     .loDivider = 0,
-				     .config.frontEndMode = 0,
-				     .config.biasMode = 1,
-				     .config.analogCfgMode = 0,
-				     .config.bNoFsPowerUp = 0,
-				     .config.bSynthNarrowBand = 0,
-				     .txPower = 0x7217,
-				     .pRegOverrideCommon = overrides_ble_common,
-				     .pRegOverride1Mbps = overrides_ble_1Mbps,
-				     .pRegOverride2Mbps = overrides_ble_2Mbps,
-				     .pRegOverrideCoded = overrides_ble_coded},
-	}};
+			.ble5_radio_setup =
+				{
+					.commandNo = CMD_BLE5_RADIO_SETUP,
+					.status = IDLE,
+					.pNextOp = NULL,
+					.startTime = 0,
+					.startTrigger.triggerType = TRIG_NOW,
+					.startTrigger.bEnaCmd = 0,
+					.startTrigger.triggerNo = 0,
+					.startTrigger.pastTrig = 0,
+					.condition.rule = COND_NEVER,
+					.condition.nSkip = COND_ALWAYS,
+					.defaultPhy.mainMode = RF_PHY_1MBS,
+					.defaultPhy.coding = 0,
+					.loDivider = 0,
+					.config.frontEndMode = 0,
+					.config.biasMode = 1,
+					.config.analogCfgMode = 0,
+					.config.bNoFsPowerUp = 0,
+					.config.bSynthNarrowBand = 0,
+					.txPower = 0x7217,
+					.pRegOverrideCommon = overrides_ble_common,
+					.pRegOverride1Mbps = overrides_ble_1Mbps,
+					.pRegOverride2Mbps = overrides_ble_2Mbps,
+					.pRegOverrideCoded = overrides_ble_coded,
+				},
+		},
+};
 static ble_cc13xx_cc26xx_data_t *driver_data = &ble_cc13xx_cc26xx_data;
 
 static uint32_t isr_latency_status = 0;
 static uint32_t isr_latency = 0;
 
 #if !(defined(CONFIG_PM) || defined(CONFIG_PM_DEVICE) || defined(CONFIG_POWEROFF))
-static const PowerCC26X2_Config PowerCC26X2_config = {
+const PowerCC26X2_Config PowerCC26X2_config = {
 	.policyInitFxn = NULL,
 	.policyFxn = &PowerCC26XX_doWFI,
 	.calibrateFxn = &PowerCC26XX_calibrate,
@@ -469,10 +474,6 @@ void radio_setup(void)
 					 &driver_data->rf.params);
 	LL_ASSERT(driver_data->rf.handle);
 
-	driver_data->rf.cmd.fs.frequency = channel_frequency_table[RF_CHANNEL_37].frequency;
-	RF_runCmd(driver_data->rf.handle, (RF_Op *)&driver_data->rf.cmd.fs, RF_PriorityNormal, NULL,
-		  RF_EventLastCmdDone);
-
 	get_isr_latency();
 }
 
@@ -487,42 +488,45 @@ void radio_stop(void)
 	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
 }
 
-void radio_disable(void)
+void radio_disable(radio_isr_cb_t callback)
 {
 	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
 
 	RF_runDirectCmd(driver_data->rf.handle, CMD_STOP);
 	RF_runImmediateCmd(driver_data->rf.handle, (uint32_t *)&driver_data->rf.cmd.clear_rx);
+	RF_postCmd(driver_data->rf.handle, (RF_Op *)&driver_data->rf.cmd.nop, RF_PriorityNormal,
+		   callback, RF_EVENT_ISR_MASK);
 }
 
-uint32_t radio_rf_op_start_now(RF_Op *rf_op, uint32_t timeout_ticks, radio_isr_cb_t callback)
+uint32_t radio_rf_op_start_now(RF_Op *rf_op, radio_isr_cb_t callback)
 {
-	return radio_rf_op_start_tick(rf_op, 0, 1, timeout_ticks, callback);
+	return radio_rf_op_start_tick(rf_op, cntr_cnt_get(), 1, callback);
 }
 
-uint32_t radio_rf_op_start_delayed(RF_Op *rf_op, uint32_t delay_ticks, uint32_t timeout_ticks,
-				   radio_isr_cb_t callback)
+uint32_t radio_rf_op_start_delayed(RF_Op *rf_op, uint32_t delay_ticks, radio_isr_cb_t callback)
 {
-	return radio_rf_op_start_tick(rf_op, (cntr_cnt_get() + delay_ticks), 1, timeout_ticks,
-				      callback);
+	return radio_rf_op_start_tick(rf_op, (cntr_cnt_get() + delay_ticks), 1, callback);
 }
 
 uint32_t radio_rf_op_start_tick(RF_Op *rf_op, uint32_t start_tick, uint32_t remainder,
-				uint32_t timeout_ticks, radio_isr_cb_t callback)
+				radio_isr_cb_t callback)
 {
 	uint32_t now = cntr_cnt_get();
 
-	/* Save it for later */
-	// rtc_start = start_ticks;
-
-#warning "TODO: Check if start time has already passed"
 	rfc_ble5RadioOp_t *ble_radio_op = (rfc_ble5RadioOp_t *)rf_op;
 	ble_radio_op->startTime = start_tick + remainder;
 	ble_radio_op->startTrigger.triggerType = TRIG_ABSTIME;
-	ble_radio_op->startTrigger.pastTrig = true;
+	ble_radio_op->startTrigger.pastTrig = 1;
 
-	LOG_DBG("%s (0x%04X) ch %u starts in %u", rf_get_command_string(ble_radio_op->commandNo),
-		ble_radio_op->commandNo, ble_radio_op->channel, (ble_radio_op->startTime - now));
+	if (ble_radio_op->startTime < now) {
+		ble_radio_op->startTime = now;
+	}
+
+	LOG_DBG("now %u st %u", now, ble_radio_op->startTime);
+
+	LOG_DBG("%s (0x%04X) ch %u starts in %uus", rf_get_command_string(ble_radio_op->commandNo),
+		ble_radio_op->commandNo, ble_radio_op->channel,
+		HAL_TICKER_TICKS_TO_US(ble_radio_op->startTime - now));
 
 	RF_postCmd(driver_data->rf.handle, rf_op, RF_PriorityNormal, callback, RF_EVENT_ISR_MASK);
 
@@ -574,17 +578,21 @@ uint32_t radio_tx_chain_delay_get(uint8_t phy, uint8_t flags)
 static void isr_latency_callback(RF_Handle rf_handle, RF_CmdHandle command_handle,
 				 RF_EventMask event_mask)
 {
-	isr_latency = HAL_TICKER_TICKS_TO_US(cntr_cnt_get());
-	isr_latency_status = ISR_LATENCY_DONE;
+	if (isr_latency == 0) {
+		isr_latency = HAL_TICKER_TICKS_TO_US(cntr_cnt_get());
+	}
+
+	if (event_mask & RF_EVENT_DONE_MASK) {
+		isr_latency_status = ISR_LATENCY_DONE;
+	}
 }
 
 static void get_isr_latency(void)
 {
 	isr_latency_status = 0;
+	isr_latency = 0;
 
-	radio_disable();
-	RF_postCmd(driver_data->rf.handle, &driver_data->rf.cmd.nop, RF_PriorityNormal,
-		   isr_latency_callback, RF_EVENT_ISR_MASK);
+	radio_disable(isr_latency_callback);
 
 	while (isr_latency_status != ISR_LATENCY_DONE) {
 	}

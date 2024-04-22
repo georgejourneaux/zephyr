@@ -44,6 +44,7 @@ int lll_periph_reset(void)
 
 void lll_periph_prepare(void *param)
 {
+#if 0
 	int err = lll_hfclock_on();
 	LL_ASSERT(err >= 0);
 
@@ -60,10 +61,12 @@ void lll_periph_prepare(void *param)
 	/* Invoke common pipeline handling of prepare */
 	err = lll_prepare(lll_is_abort_cb, lll_conn_abort_cb, prepare_cb, 0, p);
 	LL_ASSERT(!err || err == -EINPROGRESS);
+#endif
 }
 
 static int prepare_cb(struct lll_prepare_param *p)
 {
+#if 0
 	DEBUG_RADIO_START_S(1);
 
 	struct lll_conn *lll = (struct lll_conn *)p->param;
@@ -234,5 +237,6 @@ static int prepare_cb(struct lll_prepare_param *p)
 
 	DEBUG_RADIO_START_S(1);
 
+#endif
 	return 0;
 }

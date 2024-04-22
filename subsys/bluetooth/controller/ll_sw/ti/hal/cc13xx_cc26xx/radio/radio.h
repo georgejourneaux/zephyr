@@ -8,9 +8,9 @@
 #define RADIO_RX_CONFIG_AUTO_FLUSH_EMPTY   (0)
 #define RADIO_RX_CONFIG_INCLUDE_LEN_BYTE   (1)
 #define RADIO_RX_CONFIG_INCLUDE_CRC        (1)
-#define RADIO_RX_CONFIG_APPEND_RSSI        (1)
+#define RADIO_RX_CONFIG_APPEND_RSSI        (0)
 #define RADIO_RX_CONFIG_APPEND_STATUS      (0)
-#define RADIO_RX_CONFIG_APPEND_TIMESTAMP   (1)
+#define RADIO_RX_CONFIG_APPEND_TIMESTAMP   (0)
 
 #define RF_RX_ADDITIONAL_DATA_BYTES                                                                \
 	(RADIO_RX_CONFIG_INCLUDE_LEN_BYTE + RADIO_RX_CONFIG_INCLUDE_CRC +                          \
@@ -35,13 +35,12 @@ typedef RF_Callback radio_isr_cb_t;
 void radio_setup(void);
 void radio_reset(void);
 void radio_stop(void);
-void radio_disable(void);
+void radio_disable(radio_isr_cb_t callback);
 
-uint32_t radio_rf_op_start_now(RF_Op *rf_op, uint32_t timeout_ticks, radio_isr_cb_t callback);
-uint32_t radio_rf_op_start_delayed(RF_Op *rf_op, uint32_t delay_ticks, uint32_t timeout_ticks,
-				   radio_isr_cb_t callback);
+uint32_t radio_rf_op_start_now(RF_Op *rf_op, radio_isr_cb_t callback);
+uint32_t radio_rf_op_start_delayed(RF_Op *rf_op, uint32_t delay_ticks, radio_isr_cb_t callback);
 uint32_t radio_rf_op_start_tick(RF_Op *rf_op, uint32_t start_tick, uint32_t remainder,
-				uint32_t timeout_ticks, radio_isr_cb_t callback);
+				radio_isr_cb_t callback);
 
 void radio_isr(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask);
 

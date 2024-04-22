@@ -411,8 +411,7 @@ void lll_abort_cb(struct lll_prepare_param *prepare_param, void *param)
 		 * After event has been cleanly aborted, clean up resources
 		 * and dispatch event done.
 		 */
-		radio_isr_set(lll_isr_done, param);
-		radio_disable();
+		radio_disable(lll_isr_abort);
 		return;
 	}
 
@@ -492,37 +491,27 @@ int8_t lll_radio_tx_pwr_floor(int8_t tx_pwr_lvl)
 	return RADIO_TXP_DEFAULT;
 }
 
-inline void lll_isr_abort(void *param)
+void lll_isr_abort(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask)
 {
-	lll_isr_status_reset();
-	lll_isr_cleanup(param);
-}
-
-void lll_isr_done(void *param, radio_isr_cb_rf_param_t rf_param)
-{
-	lll_isr_abort(param);
+	lll_isr_cleanup(NULL);
 }
 
 void lll_isr_cleanup(void *param)
 {
-	int err;
-
 	radio_stop();
 
-	err = lll_hfclock_off();
-	LL_ASSERT(err >= 0);
+	LL_ASSERT(lll_hfclock_off() >= 0);
 
 	lll_done(NULL);
 }
 
-void lll_isr_early_abort(void *param, radio_isr_cb_rf_param_t rf_param)
+void lll_isr_early_abort(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask)
 {
-	if (false == (rf_param.event_mask & RADIO_RF_EVENT_MASK_RX_DONE)) {
+	if (false == (event_mask & RADIO_RF_EVENT_MASK_RX_DONE)) {
 		return;
 	}
 
-	int err = lll_hfclock_off();
-	LL_ASSERT(err >= 0);
+	LL_ASSERT(lll_hfclock_off() >= 0);
 
 	lll_done(NULL);
 }
