@@ -27,8 +27,7 @@
 #define RADIO_RF_EVENT_MASK_CMD_STOPPED                                                            \
 	(RF_EventCmdCancelled | RF_EventCmdAborted | RF_EventCmdStopped)
 
-#define HAL_RADIO_PDU_LEN_MAX (BIT(8) - 1)
-#define RADIO_TXP_DEFAULT     0
+#define RADIO_TXP_DEFAULT 0
 
 typedef RF_Callback radio_isr_cb_t;
 

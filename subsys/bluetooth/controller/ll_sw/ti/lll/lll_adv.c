@@ -45,9 +45,7 @@
 LOG_MODULE_REGISTER(bt_ti_adv);
 
 #define RF_RX_ENTRY_BUFFER_SIZE (2)
-// #define RF_RX_BUFFER_SIZE       (sizeof(struct pdu_adv_connect_ind) +
-// RF_RX_ADDITIONAL_DATA_BYTES)
-#define RF_RX_BUFFER_SIZE       (HAL_RADIO_PDU_LEN_MAX + RF_RX_ADDITIONAL_DATA_BYTES)
+#define RF_RX_BUFFER_SIZE       (PDU_ADV_MEM_SIZE + RF_RX_ADDITIONAL_DATA_BYTES)
 
 struct RF_RX_DATA_ADV {
 	rfc_dataEntryGeneral_t *entry;
@@ -267,7 +265,6 @@ static int prepare_cb(struct lll_prepare_param *p)
 	 */
 	if (unlikely(lll->conn && (lll->conn->periph.initiated || lll->conn->periph.cancelled))) {
 		radio_disable(lll_isr_early_abort);
-
 		return 0;
 	}
 #endif /* CONFIG_BT_PERIPHERAL */
@@ -337,7 +334,7 @@ static struct pdu_adv *chan_prepare(struct lll_adv *lll)
 	adv_param = lll;
 
 #warning "TODO: calculate hcto"
-	cmd_ble5_adv.pParams->endTime = 50000;
+	cmd_ble5_adv.pParams->endTime = 56000;
 	ble_adv_param.endTrigger.triggerType = TRIG_REL_START;
 
 	return pdu_adv;
@@ -546,8 +543,9 @@ static inline int isr_rx_pdu(struct lll_adv *lll)
 
 		ftr = &(rx->hdr.rx_ftr);
 		ftr->param = lll;
-		// ftr->ticks_anchor = radio_tmr_start_get();
-		// ftr->radio_end_us = radio_tmr_end_get() - radio_rx_chain_delay_get(0, 0);
+		ftr->ticks_anchor = cmd_ble5_adv.startTime;
+		ftr->radio_end_us =
+			cmd_ble5_adv.pOutput->timeStamp - radio_rx_chain_delay_get(0, 0);
 
 #if defined(CONFIG_BT_CTLR_PRIVACY)
 		ftr->rl_idx = irkmatch_ok ? rl_idx : FILTER_IDX_NONE;
