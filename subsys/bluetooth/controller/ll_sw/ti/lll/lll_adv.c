@@ -44,21 +44,22 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(bt_ti_adv);
 
-#define RF_RX_ENTRY_BUFFER_SIZE (2)
-#define RF_RX_BUFFER_SIZE       (PDU_ADV_MEM_SIZE + RF_RX_ADDITIONAL_DATA_BYTES)
-
+#define RF_RX_BUFFER_NUMBER_OF_ENTRIES (2)
+#define RF_RX_BUFFER_LOCAL_DATA_SIZE   (0)
+#define RF_RX_BUFFER_DATA_SIZE         (PDU_ADV_MEM_SIZE)
 struct RF_RX_DATA_ADV {
-	rfc_dataEntryGeneral_t *entry;
+	rfc_dataEntryPointer_t *head_entry;
+	rfc_dataEntryPointer_t *tail_entry;
 	dataQueue_t queue;
-	uint8_t buffer[RF_QUEUE_DATA_ENTRY_BUFFER_SIZE(RF_RX_ENTRY_BUFFER_SIZE, RF_RX_BUFFER_SIZE)]
-		__attribute__((aligned(4)));
+	uint8_t buffer[RF_QUEUE_DATA_ENTRY_BUFFER_SIZE(
+		RF_RX_BUFFER_NUMBER_OF_ENTRIES, RF_QUEUE_DATA_ENTRY_POINTER_HEADER_SIZE,
+		RF_RX_BUFFER_LOCAL_DATA_SIZE)] __attribute__((aligned(4)));
 } rf_rx_data_adv;
 
 static rfc_bleAdvPar_t ble_adv_param;
 static rfc_bleAdvOutput_t ble_adv_output;
 static rfc_CMD_BLE5_ADV_t cmd_ble5_adv;
 
-static uint8_t *adv_node_rx_pdu = NULL;
 static void *adv_param = NULL;
 static void *adv_abort_param = NULL;
 #if defined(CONFIG_BT_PERIPHERAL)
@@ -131,9 +132,11 @@ static int init_reset(void)
 {
 	lll_adv_pdu_init_reset();
 
-	rf_rx_data_adv.entry = rf_queue_define_queue(&rf_rx_data_adv.queue, rf_rx_data_adv.buffer,
-						     sizeof(rf_rx_data_adv.buffer),
-						     RF_RX_ENTRY_BUFFER_SIZE, RF_RX_BUFFER_SIZE);
+	rf_rx_data_adv.head_entry = rf_queue_define_queue_pointer(
+		&rf_rx_data_adv.queue, rf_rx_data_adv.buffer, sizeof(rf_rx_data_adv.buffer),
+		RF_RX_BUFFER_NUMBER_OF_ENTRIES);
+	rf_rx_data_adv.tail_entry = rf_rx_data_adv.head_entry;
+	LL_ASSERT(rf_rx_data_adv.head_entry);
 
 	ble_adv_param.pRxQ = &rf_rx_data_adv.queue;
 	ble_adv_param.rxConfig.bAutoFlushIgnored = RADIO_RX_CONFIG_AUTO_FLUSH_IGNORED;
@@ -330,7 +333,9 @@ static struct pdu_adv *chan_prepare(struct lll_adv *lll)
 	LL_ASSERT(node_rx);
 
 #warning "TODO: pass directly into rf_queue? (change to pointer queue)"
-	adv_node_rx_pdu = node_rx->pdu;
+	rf_rx_data_adv.head_entry = rf_queue_insert_entry_pointer(
+		rf_rx_data_adv.head_entry, node_rx->pdu, RF_RX_BUFFER_DATA_SIZE);
+	// adv_node_rx_pdu = node_rx->pdu;
 	adv_param = lll;
 
 #warning "TODO: calculate hcto"
@@ -427,9 +432,9 @@ static void isr_rx(void *param)
 		lll_prof_latency_capture();
 	}
 
-	if (rf_rx_data_adv.entry->status == DATA_ENTRY_FINISHED) {
-		if (rf_rx_data_adv.entry->config.type == DATA_ENTRY_TYPE_GEN) {
-			uint8_t *data = &rf_rx_data_adv.entry->data;
+	if (rf_rx_data_adv.tail_entry->status == DATA_ENTRY_FINISHED) {
+		if (rf_rx_data_adv.tail_entry->config.type == DATA_ENTRY_TYPE_PTR) {
+			uint8_t *data = rf_rx_data_adv.tail_entry->pData;
 
 			/* - PDU header
 			 * - PDU body length (advert or data)
@@ -444,16 +449,8 @@ static void isr_rx(void *param)
 			uint8_t a_d = data[data_index++];
 			uint16_t data_size = data[data_index++] + 2;
 
-			memcpy(adv_node_rx_pdu, data, data_size);
-			data_index += data_size - 2;
-
-			uint32_t crc = (data[data_index++] & 0xFF);
-			crc |= ((data[data_index++] << 8) & 0xFF00);
-			crc |= ((data[data_index++] << 16) & 0xFF0000);
-
-			LOG_WRN("rx_entry | ad %u | ds %u | crc 0x%08X | rssi %i | ts %u |", a_d,
-				data_size, crc, cmd_ble5_adv.pOutput->lastRssi,
-				cmd_ble5_adv.pOutput->timeStamp);
+			LOG_WRN("rx_entry | ad %u | ds %u | rssi %i | ts %u |", a_d, data_size,
+				cmd_ble5_adv.pOutput->lastRssi, cmd_ble5_adv.pOutput->timeStamp);
 			struct pdu_adv *pdu_adv = (struct pdu_adv *)data;
 			LOG_WRN("pdu | type %u | rfu %u | ch %u | tx %u | rx %u | len %u |",
 				pdu_adv->type, pdu_adv->rfu, pdu_adv->chan_sel, pdu_adv->tx_addr,
@@ -461,8 +458,9 @@ static void isr_rx(void *param)
 			LOG_HEXDUMP_WRN(data, data_size, "RX");
 		}
 
-		rf_rx_data_adv.entry = rf_queue_next_entry(rf_rx_data_adv.entry);
+		rf_rx_data_adv.tail_entry = rf_queue_next_entry_pointer(rf_rx_data_adv.tail_entry);
 	} else {
+		LOG_WRN("rf queue wrong entry type (%u)", rf_rx_data_adv.tail_entry->config.type);
 		return;
 	}
 
