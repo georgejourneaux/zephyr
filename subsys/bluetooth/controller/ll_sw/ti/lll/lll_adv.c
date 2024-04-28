@@ -66,7 +66,7 @@ static void *adv_abort_param = NULL;
 static void *adv_abort_all_param = NULL;
 #endif /* CONFIG_BT_PERIPHERAL */
 
-static int init_reset(void);
+static void init_reset(void);
 
 static int is_abort_cb(void *next, void *curr, lll_prepare_cb_t *resume_cb);
 static void abort_cb(struct lll_prepare_param *prepare_param, void *param);
@@ -97,25 +97,13 @@ static inline bool isr_rx_ci_tgta_check(struct lll_adv *lll, uint8_t rx_addr, ui
 
 int lll_adv_init(void)
 {
-	int err;
-
-	err = init_reset();
-	if (err) {
-		return err;
-	}
-
+	init_reset();
 	return 0;
 }
 
 int lll_adv_reset(void)
 {
-	int err;
-
-	err = init_reset();
-	if (err) {
-		return err;
-	}
-
+	init_reset();
 	return 0;
 }
 
@@ -128,7 +116,7 @@ void lll_adv_prepare(void *param)
 	LL_ASSERT(!err || err == -EINPROGRESS);
 }
 
-static int init_reset(void)
+static void init_reset(void)
 {
 	lll_adv_pdu_init_reset();
 
@@ -191,8 +179,6 @@ static int init_reset(void)
 	cmd_ble5_adv.pParams = &ble_adv_param;
 	cmd_ble5_adv.pOutput = &ble_adv_output;
 	cmd_ble5_adv.tx20Power = 0;
-
-	return 0;
 }
 
 static int is_abort_cb(void *next, void *curr, lll_prepare_cb_t *resume_cb)
@@ -332,10 +318,8 @@ static struct pdu_adv *chan_prepare(struct lll_adv *lll)
 	struct node_rx_pdu *node_rx = ull_pdu_rx_alloc_peek(1);
 	LL_ASSERT(node_rx);
 
-#warning "TODO: pass directly into rf_queue? (change to pointer queue)"
 	rf_rx_data_adv.head_entry = rf_queue_insert_entry_pointer(
 		rf_rx_data_adv.head_entry, node_rx->pdu, RF_RX_BUFFER_DATA_SIZE);
-	// adv_node_rx_pdu = node_rx->pdu;
 	adv_param = lll;
 
 #warning "TODO: calculate hcto"
@@ -434,21 +418,10 @@ static void isr_rx(void *param)
 
 	if (rf_rx_data_adv.tail_entry->status == DATA_ENTRY_FINISHED) {
 		if (rf_rx_data_adv.tail_entry->config.type == DATA_ENTRY_TYPE_PTR) {
+#if defined(CONFIG_BT_TI_LLL_PACKET_DEBUG)
 			uint8_t *data = rf_rx_data_adv.tail_entry->pData;
-
-			/* - PDU header
-			 * - PDU body length (advert or data)
-			 * - PDU body
-			 * - CRC
-			 * - //RSSI
-			 * - //Channel (and bIgnore, bCrcErr)
-			 * - //PHY mode (byte not present if ble4_cmd)
-			 * - //Timestamp (32 bit)
-			 */
-			uint16_t data_index = 0;
-			uint8_t a_d = data[data_index++];
-			uint16_t data_size = data[data_index++] + 2;
-
+			uint8_t a_d = data[0];
+			uint16_t data_size = data[1] + 2;
 			LOG_WRN("rx_entry | ad %u | ds %u | rssi %i | ts %u |", a_d, data_size,
 				cmd_ble5_adv.pOutput->lastRssi, cmd_ble5_adv.pOutput->timeStamp);
 			struct pdu_adv *pdu_adv = (struct pdu_adv *)data;
@@ -456,11 +429,11 @@ static void isr_rx(void *param)
 				pdu_adv->type, pdu_adv->rfu, pdu_adv->chan_sel, pdu_adv->tx_addr,
 				pdu_adv->rx_addr, pdu_adv->len);
 			LOG_HEXDUMP_WRN(data, data_size, "RX");
+#endif /* CONFIG_BT_TI_LLL_PACKET_DEBUG */
 		}
 
 		rf_rx_data_adv.tail_entry = rf_queue_next_entry_pointer(rf_rx_data_adv.tail_entry);
 	} else {
-		LOG_WRN("rf queue wrong entry type (%u)", rf_rx_data_adv.tail_entry->config.type);
 		return;
 	}
 

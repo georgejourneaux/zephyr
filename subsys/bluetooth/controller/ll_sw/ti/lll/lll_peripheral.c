@@ -3,9 +3,13 @@
 #include <zephyr/bluetooth/hci_types.h>
 #include <zephyr/sys/byteorder.h>
 
+#include <driverlib/rf_ble_cmd.h>
+#include <driverlib/rf_ble_mailbox.h>
+
 #include "hal/ccm.h"
 #include "hal/radio.h"
 #include "hal/ticker.h"
+#include "hal/cc13xx_cc26xx/radio/rf_queue.h"
 
 #include "util/mem.h"
 #include "util/memq.h"
@@ -30,52 +34,157 @@
 
 #include "hal/debug.h"
 
+#define LOG_LEVEL CONFIG_BT_HCI_DRIVER_LOG_LEVEL
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(bt_ti_peripheral);
+
+static rfc_ble5SlavePar_t ble_slave_param;
+static rfc_bleMasterSlaveOutput_t ble_slave_output;
+static rfc_CMD_BLE5_SLAVE_t cmd_ble5_slave;
+
+static struct lll_conn *conn_param = NULL;
+
+static void init_reset(void);
 static int prepare_cb(struct lll_prepare_param *p);
+static void isr_done(void *param);
 
 int lll_periph_init(void)
 {
+	init_reset();
 	return 0;
 }
 
 int lll_periph_reset(void)
 {
+	init_reset();
 	return 0;
 }
 
 void lll_periph_prepare(void *param)
 {
-#if 0
 	int err = lll_hfclock_on();
 	LL_ASSERT(err >= 0);
 
 	struct lll_prepare_param *p = (struct lll_prepare_param *)param;
-	struct lll_conn *lll = (struct lll_conn *)p->param;
+	struct lll_conn *lll_conn = (struct lll_conn *)p->param;
 
 	/* Accumulate window widening */
-	lll->periph.window_widening_prepare_us +=
-		lll->periph.window_widening_periodic_us * (p->lazy + 1);
-	if (lll->periph.window_widening_prepare_us > lll->periph.window_widening_max_us) {
-		lll->periph.window_widening_prepare_us = lll->periph.window_widening_max_us;
+	lll_conn->periph.window_widening_prepare_us +=
+		lll_conn->periph.window_widening_periodic_us * (p->lazy + 1);
+	if (lll_conn->periph.window_widening_prepare_us > lll_conn->periph.window_widening_max_us) {
+		lll_conn->periph.window_widening_prepare_us =
+			lll_conn->periph.window_widening_max_us;
 	}
 
 	/* Invoke common pipeline handling of prepare */
 	err = lll_prepare(lll_is_abort_cb, lll_conn_abort_cb, prepare_cb, 0, p);
 	LL_ASSERT(!err || err == -EINPROGRESS);
-#endif
+}
+
+void lll_isr_peripheral(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask)
+{
+	radio_isr(rf_handle, command_handle, event_mask);
+	LL_ASSERT(conn_param);
+
+	if (event_mask & RADIO_RF_EVENT_MASK_TX_DONE) {
+#if defined(CONFIG_BT_TI_LLL_PACKET_DEBUG)
+		LOG_WRN("tx_entry | rssi %i | ts %u |", cmd_ble5_slave.pOutput->lastRssi,
+			cmd_ble5_slave.pOutput->timeStamp);
+#endif /* CONFIG_BT_TI_LLL_PACKET_DEBUG */
+		lll_conn_isr_tx(conn_param);
+	}
+
+	if (event_mask & RADIO_RF_EVENT_MASK_RX_DONE) {
+#if defined(CONFIG_BT_TI_LLL_PACKET_DEBUG)
+		LOG_WRN("rx_entry | rssi %i | ts %u |", cmd_ble5_slave.pOutput->lastRssi,
+			cmd_ble5_slave.pOutput->timeStamp);
+#endif /* CONFIG_BT_TI_LLL_PACKET_DEBUG */
+		lll_conn_isr_rx(conn_param);
+	}
+
+	if (event_mask & RADIO_RF_EVENT_MASK_CMD_DONE) {
+		isr_done(conn_param);
+	}
+
+	// if (event_mask & RADIO_RF_EVENT_MASK_CMD_STOPPED) {
+	// 	isr_abort(conn_param);
+	// }
+}
+
+static void init_reset(void)
+{
+	ble_slave_param.pRxQ = lll_conn_get_rf_rx_queue();
+	ble_slave_param.pTxQ = lll_conn_get_rf_tx_queue();
+	ble_slave_param.rxConfig.bAutoFlushIgnored = RADIO_RX_CONFIG_AUTO_FLUSH_IGNORED;
+	ble_slave_param.rxConfig.bAutoFlushCrcErr = RADIO_RX_CONFIG_AUTO_FLUSH_CRC_ERR;
+	ble_slave_param.rxConfig.bAutoFlushEmpty = RADIO_RX_CONFIG_AUTO_FLUSH_EMPTY;
+	ble_slave_param.rxConfig.bIncludeLenByte = RADIO_RX_CONFIG_INCLUDE_LEN_BYTE;
+	ble_slave_param.rxConfig.bIncludeCrc = RADIO_RX_CONFIG_INCLUDE_CRC;
+	ble_slave_param.rxConfig.bAppendRssi = RADIO_RX_CONFIG_APPEND_RSSI;
+	ble_slave_param.rxConfig.bAppendStatus = RADIO_RX_CONFIG_APPEND_STATUS;
+	ble_slave_param.rxConfig.bAppendTimestamp = RADIO_RX_CONFIG_APPEND_TIMESTAMP;
+	ble_slave_param.seqStat.lastRxSn = 0;
+	ble_slave_param.seqStat.lastTxSn = 0;
+	ble_slave_param.seqStat.nextTxSn = 0;
+	ble_slave_param.seqStat.bFirstPkt = 0;
+	ble_slave_param.seqStat.bAutoEmpty = 0;
+	ble_slave_param.seqStat.bLlCtrlTx = 0;
+	ble_slave_param.seqStat.bLlCtrlAckRx = 0;
+	ble_slave_param.seqStat.bLlCtrlAckPending = 0;
+	ble_slave_param.maxNack = 0;
+	ble_slave_param.maxPkt = 0;
+	ble_slave_param.accessAddress = 0;
+	ble_slave_param.crcInit0 = 0;
+	ble_slave_param.crcInit1 = 0;
+	ble_slave_param.crcInit2 = 0;
+	ble_slave_param.timeoutTrigger.triggerType = TRIG_REL_START;
+	ble_slave_param.timeoutTrigger.bEnaCmd = 0;
+	ble_slave_param.timeoutTrigger.triggerNo = 0;
+	ble_slave_param.timeoutTrigger.pastTrig = 1;
+	ble_slave_param.timeoutTime = 0;
+	ble_slave_param.maxRxPktLen = PDU_DC_CTRL_RX_SIZE_MAX;
+	ble_slave_param.maxLenLowRate = 0;
+	ble_slave_param.__dummy0 = 0;
+	ble_slave_param.endTrigger.triggerType = TRIG_REL_START;
+	ble_slave_param.endTrigger.bEnaCmd = 0;
+	ble_slave_param.endTrigger.triggerNo = 0;
+	ble_slave_param.endTrigger.pastTrig = 1;
+	ble_slave_param.endTime = 0;
+
+	memset(&ble_slave_output, 0, sizeof(ble_slave_output));
+
+	cmd_ble5_slave.commandNo = CMD_BLE5_SLAVE;
+	cmd_ble5_slave.status = IDLE;
+	cmd_ble5_slave.pNextOp = NULL;
+	cmd_ble5_slave.startTime = 0;
+	cmd_ble5_slave.startTrigger.triggerType = TRIG_NOW;
+	cmd_ble5_slave.startTrigger.bEnaCmd = 0;
+	cmd_ble5_slave.startTrigger.triggerNo = 0;
+	cmd_ble5_slave.startTrigger.pastTrig = 0;
+	cmd_ble5_slave.condition.rule = COND_NEVER;
+	cmd_ble5_slave.condition.nSkip = COND_ALWAYS;
+	cmd_ble5_slave.channel = 0;
+	cmd_ble5_slave.whitening.init = 0;
+	cmd_ble5_slave.whitening.bOverride = 0;
+	cmd_ble5_slave.phyMode.mainMode = 0;
+	cmd_ble5_slave.phyMode.coding = 0;
+	cmd_ble5_slave.rangeDelay = 0;
+	cmd_ble5_slave.txPower = 0;
+	cmd_ble5_slave.pParams = &ble_slave_param;
+	cmd_ble5_slave.pOutput = &ble_slave_output;
+	cmd_ble5_slave.tx20Power = 0;
 }
 
 static int prepare_cb(struct lll_prepare_param *p)
 {
-#if 0
 	DEBUG_RADIO_START_S(1);
 
-	struct lll_conn *lll = (struct lll_conn *)p->param;
+	conn_param = (struct lll_conn *)p->param;
 
 	/* Check if stopped (on disconnection between prepare and pre-empt)
 	 */
-	if (unlikely(lll->handle == 0xFFFF)) {
-		radio_isr_set(lll_isr_early_abort, lll);
-		radio_disable();
+	if (unlikely(conn_param->handle == 0xFFFF)) {
+		radio_disable(lll_isr_early_abort);
 
 		return 0;
 	}
@@ -84,159 +193,138 @@ static int prepare_cb(struct lll_prepare_param *p)
 	lll_conn_prepare_reset();
 
 	/* Calculate the current event latency */
-	lll->latency_event = lll->latency_prepare + p->lazy;
+	conn_param->latency_event = conn_param->latency_prepare + p->lazy;
 
 	/* Calculate the current event counter value */
-	uint16_t event_counter = lll->event_counter + lll->latency_event;
+	uint16_t event_counter = conn_param->event_counter + conn_param->latency_event;
 
 	/* Update event counter to next value */
-	lll->event_counter = (event_counter + 1);
+	conn_param->event_counter = (event_counter + 1);
 
 	/* Reset accumulated latencies */
-	lll->latency_prepare = 0;
+	conn_param->latency_prepare = 0;
 
-	uint8_t data_chan_use = 0;
-	if (lll->data_chan_sel) {
+	if (conn_param->data_chan_sel) {
 #if defined(CONFIG_BT_CTLR_CHAN_SEL_2)
-		data_chan_use = lll_chan_sel_2(event_counter, lll->data_chan_id,
-					       &lll->data_chan_map[0], lll->data_chan_count);
+		cmd_ble5_slave.channel = =
+			lll_chan_sel_2(event_counter, conn_param->data_chan_id,
+				       &conn_param->data_chan_map[0], conn_param->data_chan_count);
 #else  /* !CONFIG_BT_CTLR_CHAN_SEL_2 */
-		LL_ASSERT(data_chan_use);
+		LL_ASSERT(cmd_ble5_slave.channel);
 #endif /* !CONFIG_BT_CTLR_CHAN_SEL_2 */
 	} else {
-		data_chan_use =
-			lll_chan_sel_1(&lll->data_chan_use, lll->data_chan_hop, lll->latency_event,
-				       &lll->data_chan_map[0], lll->data_chan_count);
+		cmd_ble5_slave.channel =
+			lll_chan_sel_1(&conn_param->data_chan_use, conn_param->data_chan_hop,
+				       conn_param->latency_event, &conn_param->data_chan_map[0],
+				       conn_param->data_chan_count);
 	}
 
 	/* current window widening */
-	lll->periph.window_widening_event_us += lll->periph.window_widening_prepare_us;
-	lll->periph.window_widening_prepare_us = 0;
-	if (lll->periph.window_widening_event_us > lll->periph.window_widening_max_us) {
-		lll->periph.window_widening_event_us = lll->periph.window_widening_max_us;
+	conn_param->periph.window_widening_event_us +=
+		conn_param->periph.window_widening_prepare_us;
+	conn_param->periph.window_widening_prepare_us = 0;
+	if (conn_param->periph.window_widening_event_us >
+	    conn_param->periph.window_widening_max_us) {
+		conn_param->periph.window_widening_event_us =
+			conn_param->periph.window_widening_max_us;
 	}
 
 	/* current window size */
-	lll->periph.window_size_event_us += lll->periph.window_size_prepare_us;
-	lll->periph.window_size_prepare_us = 0;
+	conn_param->periph.window_size_event_us += conn_param->periph.window_size_prepare_us;
+	conn_param->periph.window_size_prepare_us = 0;
 
 	/* Ensure that empty flag reflects the state of the Tx queue, as a
 	 * peripheral if this is the first connection event and as no prior PDU
 	 * is transmitted, an incorrect acknowledgment by peer should not
 	 * dequeue a PDU that has not been transmitted on air.
 	 */
-	if (!lll->empty) {
+	if (!conn_param->empty) {
 		/* Check for any Tx PDU at the head of the queue */
-		if (!memq_peek(lll->memq_tx.head, lll->memq_tx.tail, NULL)) {
+		if (!memq_peek(conn_param->memq_tx.head, conn_param->memq_tx.tail, NULL)) {
 			/* Update empty flag to reflect that no valid non-empty
 			 * PDU was transmitted prior to this connection event.
 			 */
-			lll->empty = 1U;
+			conn_param->empty = 1U;
 		}
 	}
 
 	/* Start setting up Radio h/w */
 	radio_reset();
-#if defined(CONFIG_BT_CTLR_TX_PWR_DYNAMIC_CONTROL)
-	radio_tx_power_set(lll->tx_pwr_lvl);
-#else
 	radio_tx_power_set(RADIO_TXP_DEFAULT);
-#endif /* CONFIG_BT_CTLR_TX_PWR_DYNAMIC_CONTROL */
 
-	radio_aa_set(lll->access_addr);
-	radio_crc_configure(PDU_CRC_POLYNOMIAL, sys_get_le24(lll->crc_init));
+	cmd_ble5_slave.pParams->accessAddress =
+		(((uint32_t)conn_param->access_addr[3] << 24) & 0xFF000000) |
+		(((uint32_t)conn_param->access_addr[2] << 16) & 0xFF0000) |
+		(((uint32_t)conn_param->access_addr[1] << 8) & 0xFF00) |
+		((uint32_t)conn_param->access_addr[0] & 0xFF);
 
-	lll_radio_chan_set(data_chan_use);
+#warning "PDU_CRC_POLYNOMIAL not used?"
+	cmd_ble5_slave.pParams->crcInit0 = conn_param->crc_init[0];
+	cmd_ble5_slave.pParams->crcInit1 = conn_param->crc_init[1];
+	cmd_ble5_slave.pParams->crcInit2 = conn_param->crc_init[2];
 
-	radio_isr_set(lll_isr_conn, lll);
-
-	radio_tmr_tifs_set(EVENT_IFS_US);
-
-	/* Use regular API for cases when:
-	 * - CTE RX is not enabled,
-	 * - SOC does not require compensation for PHYEND event delay.
-	 */
-	if (!IS_ENABLED(CONFIG_BT_CTLR_DF_PHYEND_OFFSET_COMPENSATION_ENABLE)) {
-#if defined(CONFIG_BT_CTLR_PHY)
-		radio_switch_complete_and_tx(lll->phy_rx, 0, lll->phy_tx, lll->phy_flags);
-#else  /* !CONFIG_BT_CTLR_PHY && !CONFIG_BT_CTLR_DF_PHYEND_OFFSET_COMPENSATION_ENABLE */
-		radio_switch_complete_and_tx(0, 0, 0, 0);
-#endif /* !CONFIG_BT_CTLR_PHY */
-	}
-
-	lll_conn_rx_pkt_set(lll);
+	lll_conn_rx_pkt_set(conn_param);
 
 	uint32_t ticks_at_event = p->ticks_at_expire;
 
-	struct ull_hdr *ull = HDR_LLL2ULL(lll);
+	struct ull_hdr *ull = HDR_LLL2ULL(conn_param);
 	ticks_at_event += lll_event_offset_get(ull);
 
 	uint32_t ticks_at_start = ticks_at_event;
 	ticks_at_start += HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_START_US);
 
-	uint32_t remainder_us =
-		radio_tmr_start((RF_Op *)radio_get_rf_generic_rx(), ticks_at_start, p->remainder);
+#warning "TODO: calculate hcto"
+	cmd_ble5_slave.pParams->timeoutTime = 56000;
+	cmd_ble5_slave.pParams->timeoutTrigger.triggerType = TRIG_REL_START;
+	cmd_ble5_slave.pParams->endTime = 56000;
+	cmd_ble5_slave.pParams->endTrigger.triggerType = TRIG_REL_START;
 
-	radio_tmr_aa_capture();
-	radio_tmr_aa_save(0);
-
-	uint32_t hcto = remainder_us +
-			((EVENT_JITTER_US + EVENT_TICKER_RES_MARGIN_US +
-			  lll->periph.window_widening_event_us)
-			 << 1) +
-			lll->periph.window_size_event_us;
-
-#if defined(CONFIG_BT_CTLR_PHY)
-	hcto += radio_rx_ready_delay_get(lll->phy_rx, 1);
-	hcto += addr_us_get(lll->phy_rx);
-	hcto += radio_rx_chain_delay_get(lll->phy_rx, 1);
-#else  /* !CONFIG_BT_CTLR_PHY */
-	hcto += radio_rx_ready_delay_get(0, 0);
-	hcto += addr_us_get(0);
-	hcto += radio_rx_chain_delay_get(0, 0);
-#endif /* !CONFIG_BT_CTLR_PHY */
-
-	radio_tmr_hcto_configure(hcto);
-
-#if defined(HAL_RADIO_GPIO_HAVE_LNA_PIN)
-	radio_gpio_lna_setup();
-
-#if defined(CONFIG_BT_CTLR_PHY)
-	radio_gpio_pa_lna_enable(remainder_us + radio_rx_ready_delay_get(lll->phy_rx, 1) -
-				 HAL_RADIO_GPIO_LNA_OFFSET);
-#else  /* !CONFIG_BT_CTLR_PHY */
-	radio_gpio_pa_lna_enable(remainder_us + radio_rx_ready_delay_get(0, 0) -
-				 HAL_RADIO_GPIO_LNA_OFFSET);
-#endif /* !CONFIG_BT_CTLR_PHY */
-#endif /* HAL_RADIO_GPIO_HAVE_LNA_PIN */
-
-#if defined(CONFIG_BT_CTLR_PROFILE_ISR) || defined(HAL_RADIO_GPIO_HAVE_PA_PIN)
-	radio_tmr_end_capture();
-#endif /* CONFIG_BT_CTLR_PROFILE_ISR */
+	radio_rf_op_start_tick((RF_Op *)&cmd_ble5_slave, ticks_at_start, p->remainder,
+			       lll_isr_peripheral);
 
 #if defined(CONFIG_BT_CTLR_CONN_RSSI)
 	radio_rssi_measure();
 #endif /* CONFIG_BT_CTLR_CONN_RSSI */
 
-#if defined(CONFIG_BT_CTLR_XTAL_ADVANCED) &&                                                       \
-	(EVENT_OVERHEAD_PREEMPT_US <= EVENT_OVERHEAD_PREEMPT_MIN_US)
-	uint32_t overhead =
-		lll_preempt_calc(ull, (TICKER_ID_CONN_BASE + lll->handle), ticks_at_event);
-	/* check if preempt to start has changed */
-	if (overhead) {
-		LL_ASSERT_OVERHEAD(overhead);
-
-		radio_isr_set(lll_isr_abort, lll);
-		radio_disable();
-
-		return -ECANCELED;
-	}
-#endif /* CONFIG_BT_CTLR_XTAL_ADVANCED */
-
-	LL_ASSERT(!lll_prepare_done(lll));
+	LL_ASSERT(!lll_prepare_done(conn_param));
 
 	DEBUG_RADIO_START_S(1);
 
-#endif
 	return 0;
+}
+
+static void isr_done(void *param)
+{
+	struct event_done_extra *e = ull_event_done_extra_get();
+	LL_ASSERT(e);
+
+	e->type = EVENT_DONE_EXTRA_TYPE_CONN;
+	e->trx_cnt = cmd_ble5_slave.pOutput->nRxOk;
+	e->crc_valid = !cmd_ble5_slave.pOutput->pktStatus.bLastCrcErr;
+
+#if defined(CONFIG_BT_PERIPHERAL)
+	if (e->trx_cnt) {
+		struct lll_conn *lll = (struct lll_conn *)param;
+
+		if (lll->role) {
+#if defined(CONFIG_BT_CTLR_PHY)
+			uint32_t preamble_to_addr_us = addr_us_get(lll->phy_rx);
+#else  /* !CONFIG_BT_CTLR_PHY */
+			uint32_t preamble_to_addr_us = addr_us_get(0);
+#endif /* !CONFIG_BT_CTLR_PHY */
+
+#warning "TODO: Figure this out"
+			e->drift.start_to_address_actual_us = 100;
+			// radio_tmr_aa_restore() - radio_tmr_ready_get();
+			e->drift.window_widening_event_us = lll->periph.window_widening_event_us;
+			e->drift.preamble_to_addr_us = preamble_to_addr_us;
+
+			/* Reset window widening, as anchor point sync-ed */
+			lll->periph.window_widening_event_us = 0;
+			lll->periph.window_size_event_us = 0;
+		}
+	}
+#endif /* CONFIG_BT_PERIPHERAL */
+
+	lll_isr_cleanup(param);
 }
