@@ -324,8 +324,7 @@ int lll_done(void *param)
 	/* check if current LLL event is done */
 	if (!param) {
 		/* Reset current event instance */
-#warning "TODO: figure out what this assert is for"
-		// LL_ASSERT(event.curr.abort_cb);
+		LL_ASSERT(event.curr.abort_cb);
 		event.curr.abort_cb = NULL;
 
 		param = event.curr.param;
@@ -412,7 +411,7 @@ void lll_abort_cb(struct lll_prepare_param *prepare_param, void *param)
 		 * After event has been cleanly aborted, clean up resources
 		 * and dispatch event done.
 		 */
-		radio_disable(lll_isr_abort);
+		radio_disable(lll_isr_done);
 		return;
 	}
 
@@ -494,6 +493,15 @@ int8_t lll_radio_tx_pwr_floor(int8_t tx_pwr_lvl)
 
 void lll_isr_abort(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask)
 {
+	radio_isr(rf_handle, command_handle, event_mask);
+
+	lll_isr_cleanup(NULL);
+}
+
+void lll_isr_done(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask)
+{
+	radio_isr(rf_handle, command_handle, event_mask);
+
 	lll_isr_cleanup(NULL);
 }
 
@@ -508,6 +516,8 @@ void lll_isr_cleanup(void *param)
 
 void lll_isr_early_abort(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask)
 {
+	radio_isr(rf_handle, command_handle, event_mask);
+
 	if (false == (event_mask & RADIO_RF_EVENT_MASK_RX_DONE)) {
 		return;
 	}

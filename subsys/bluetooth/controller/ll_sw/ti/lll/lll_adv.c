@@ -62,9 +62,6 @@ static rfc_CMD_BLE5_ADV_t cmd_ble5_adv;
 
 static void *adv_param = NULL;
 static void *adv_abort_param = NULL;
-#if defined(CONFIG_BT_PERIPHERAL)
-static void *adv_abort_all_param = NULL;
-#endif /* CONFIG_BT_PERIPHERAL */
 
 static void init_reset(void);
 
@@ -77,8 +74,6 @@ static struct pdu_adv *chan_prepare(struct lll_adv *lll);
 
 #if defined(CONFIG_BT_PERIPHERAL)
 static int resume_prepare_cb(struct lll_prepare_param *p);
-static void isr_adv_abort_all(RF_Handle rf_handle, RF_CmdHandle command_handle,
-			      RF_EventMask event_mask);
 #endif /* CONFIG_BT_PERIPHERAL */
 
 static void isr_adv(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask);
@@ -341,29 +336,6 @@ static int resume_prepare_cb(struct lll_prepare_param *p)
 
 	return prepare_cb(p);
 }
-
-static void isr_adv_abort_all(RF_Handle rf_handle, RF_CmdHandle command_handle,
-			      RF_EventMask event_mask)
-{
-	radio_isr(rf_handle, command_handle, event_mask);
-	LL_ASSERT(adv_abort_all_param);
-
-	if ((event_mask & (RADIO_RF_EVENT_MASK_CMD_DONE | RADIO_RF_EVENT_MASK_CMD_STOPPED)) ==
-	    false) {
-		return;
-	}
-
-	static memq_link_t link;
-	static struct mayfly mfy = {0, 0, &link, NULL, lll_disable};
-
-	/* Current LLL radio event is done*/
-	lll_isr_cleanup(adv_abort_all_param);
-
-	/* Abort any LLL prepare/resume enqueued in pipeline */
-	mfy.param = adv_abort_all_param;
-	uint32_t ret = mayfly_enqueue(TICKER_USER_ID_LLL, TICKER_USER_ID_LLL, 1U, &mfy);
-	LL_ASSERT(!ret);
-}
 #endif /* CONFIG_BT_PERIPHERAL */
 
 static void isr_adv(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask)
@@ -381,12 +353,8 @@ static void isr_adv(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMa
 		isr_rx(adv_param);
 	}
 
-	if (event_mask & RADIO_RF_EVENT_MASK_CMD_DONE) {
+	if (event_mask & (RADIO_RF_EVENT_MASK_CMD_DONE | RADIO_RF_EVENT_MASK_CMD_STOPPED)) {
 		isr_done(adv_param);
-	}
-
-	if (event_mask & RADIO_RF_EVENT_MASK_CMD_STOPPED) {
-		isr_abort(adv_param);
 	}
 }
 
@@ -493,9 +461,6 @@ static inline int isr_rx_pdu(struct lll_adv *lll)
 			return -ENOBUFS;
 		}
 
-		adv_abort_all_param = lll;
-		radio_disable(isr_adv_abort_all);
-
 		if (IS_ENABLED(CONFIG_BT_CTLR_PROFILE_ISR)) {
 			lll_prof_cputime_capture();
 		}
@@ -537,13 +502,7 @@ static inline int isr_rx_pdu(struct lll_adv *lll)
 
 static void isr_done(void *param)
 {
-	struct lll_adv *lll = param;
-
-#if defined(CONFIG_BT_PERIPHERAL)
-	if (!IS_ENABLED(CONFIG_BT_CTLR_LOW_LAT) && lll->is_hdcd && !lll->chan_map_curr) {
-		lll->chan_map_curr = lll->chan_map;
-	}
-#endif /* CONFIG_BT_PERIPHERAL */
+	struct lll_adv *lll = adv_param;
 
 	/* NOTE: Do not continue to connectable advertise if advertising is
 	 *       being disabled, by checking the cancelled flag.
@@ -560,12 +519,24 @@ static void isr_done(void *param)
 		return;
 	}
 
-	lll_isr_cleanup(param);
+	lll_isr_cleanup(adv_param);
+
+#if defined(CONFIG_BT_PERIPHERAL)
+	if (lll->conn->periph.initiated) {
+
+		/* Abort any LLL prepare/resume enqueued in pipeline */
+		static memq_link_t link;
+		static struct mayfly mfy = {0, 0, &link, NULL, lll_disable};
+		mfy.param = adv_param;
+		uint32_t ret = mayfly_enqueue(TICKER_USER_ID_LLL, TICKER_USER_ID_LLL, 1U, &mfy);
+		LL_ASSERT(!ret);
+	}
+#endif /*  */
 }
 
 static void isr_abort(void *param)
 {
-	/* Current LLL radio event is done*/
+	/* Current LLL radio event is done */
 	lll_isr_cleanup(param);
 }
 
