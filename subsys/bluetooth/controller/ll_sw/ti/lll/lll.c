@@ -22,6 +22,8 @@
 
 #include "hal/swi.h"
 #include "hal/ccm.h"
+#include "hal/cntr.h"
+#include "hal/debug.h"
 #include "hal/radio.h"
 #include "hal/ticker.h"
 
@@ -41,7 +43,9 @@
 #include "lll_internal.h"
 #include "lll_prof_internal.h"
 
-#include "hal/debug.h"
+#define LOG_LEVEL CONFIG_BT_HCI_DRIVER_LOG_LEVEL
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(bt_ti_lll);
 
 #if defined(CONFIG_BT_CTLR_ZLI)
 #define IRQ_CONNECT_FLAGS IRQ_ZERO_LATENCY
@@ -493,6 +497,7 @@ int8_t lll_radio_tx_pwr_floor(int8_t tx_pwr_lvl)
 
 void lll_isr_abort(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask)
 {
+	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
 	radio_isr(rf_handle, command_handle, event_mask);
 
 	lll_isr_cleanup(NULL);
@@ -500,6 +505,7 @@ void lll_isr_abort(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMas
 
 void lll_isr_done(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask)
 {
+	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
 	radio_isr(rf_handle, command_handle, event_mask);
 
 	lll_isr_cleanup(NULL);
@@ -516,6 +522,7 @@ void lll_isr_cleanup(void *param)
 
 void lll_isr_early_abort(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask)
 {
+	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
 	radio_isr(rf_handle, command_handle, event_mask);
 
 	if (false == (event_mask & RADIO_RF_EVENT_MASK_RX_DONE)) {

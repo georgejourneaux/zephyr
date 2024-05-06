@@ -10,6 +10,7 @@
 #include <driverlib/rf_ble_mailbox.h>
 
 #include "hal/ccm.h"
+#include "hal/cntr.h"
 #include "hal/debug.h"
 #include "hal/radio.h"
 #include "hal/ticker.h"
@@ -43,6 +44,10 @@
 #define LOG_LEVEL CONFIG_BT_HCI_DRIVER_LOG_LEVEL
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(bt_ti_adv);
+
+#define RF_RX_ADV_CONFIG_AUTO_FLUSH_IGNORED (1)
+#define RF_RX_ADV_CONFIG_AUTO_FLUSH_CRC_ERR (1)
+#define RF_RX_ADV_CONFIG_AUTO_FLUSH_EMPTY   (1)
 
 #define RF_RX_BUFFER_NUMBER_OF_ENTRIES (2)
 #define RF_RX_BUFFER_LOCAL_DATA_SIZE   (0)
@@ -122,9 +127,9 @@ static void init_reset(void)
 	LL_ASSERT(rf_rx_data_adv.head_entry);
 
 	ble_adv_param.pRxQ = &rf_rx_data_adv.queue;
-	ble_adv_param.rxConfig.bAutoFlushIgnored = RADIO_RX_CONFIG_AUTO_FLUSH_IGNORED;
-	ble_adv_param.rxConfig.bAutoFlushCrcErr = RADIO_RX_CONFIG_AUTO_FLUSH_CRC_ERR;
-	ble_adv_param.rxConfig.bAutoFlushEmpty = RADIO_RX_CONFIG_AUTO_FLUSH_EMPTY;
+	ble_adv_param.rxConfig.bAutoFlushIgnored = RF_RX_ADV_CONFIG_AUTO_FLUSH_IGNORED;
+	ble_adv_param.rxConfig.bAutoFlushCrcErr = RF_RX_ADV_CONFIG_AUTO_FLUSH_CRC_ERR;
+	ble_adv_param.rxConfig.bAutoFlushEmpty = RF_RX_ADV_CONFIG_AUTO_FLUSH_EMPTY;
 	ble_adv_param.rxConfig.bIncludeLenByte = RADIO_RX_CONFIG_INCLUDE_LEN_BYTE;
 	ble_adv_param.rxConfig.bIncludeCrc = RADIO_RX_CONFIG_INCLUDE_CRC;
 	ble_adv_param.rxConfig.bAppendRssi = RADIO_RX_CONFIG_APPEND_RSSI;
@@ -226,10 +231,11 @@ static void abort_cb(struct lll_prepare_param *prepare_param, void *param)
 
 static void isr_adv_abort(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask)
 {
+	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
 	radio_isr(rf_handle, command_handle, event_mask);
 	LL_ASSERT(adv_abort_param);
 
-	if (event_mask & RADIO_RF_EVENT_MASK_CMD_DONE) {
+	if (event_mask & (RADIO_RF_EVENT_MASK_CMD_DONE | RADIO_RF_EVENT_MASK_CMD_STOPPED)) {
 		isr_abort(adv_abort_param);
 	}
 }
@@ -340,6 +346,7 @@ static int resume_prepare_cb(struct lll_prepare_param *p)
 
 static void isr_adv(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask)
 {
+	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
 	radio_isr(rf_handle, command_handle, event_mask);
 	LL_ASSERT(adv_param);
 
@@ -390,13 +397,13 @@ static void isr_rx(void *param)
 			uint8_t *data = rf_rx_data_adv.tail_entry->pData;
 			uint8_t a_d = data[0];
 			uint16_t data_size = data[1] + 2;
-			LOG_WRN("rx_entry | ad %u | ds %u | rssi %i | ts %u |", a_d, data_size,
+			LOG_DBG("rx_entry | ad %u | ds %u | rssi %i | ts %u |", a_d, data_size,
 				cmd_ble5_adv.pOutput->lastRssi, cmd_ble5_adv.pOutput->timeStamp);
 			struct pdu_adv *pdu_adv = (struct pdu_adv *)data;
-			LOG_WRN("pdu | type %u | rfu %u | ch %u | tx %u | rx %u | len %u |",
+			LOG_DBG("pdu | type %u | rfu %u | ch %u | tx %u | rx %u | len %u |",
 				pdu_adv->type, pdu_adv->rfu, pdu_adv->chan_sel, pdu_adv->tx_addr,
 				pdu_adv->rx_addr, pdu_adv->len);
-			LOG_HEXDUMP_WRN(data, data_size, "RX");
+			LOG_HEXDUMP_DBG(data, data_size, "RX");
 #endif /* CONFIG_BT_TI_LLL_PACKET_DEBUG */
 		}
 
@@ -482,10 +489,6 @@ static inline int isr_rx_pdu(struct lll_adv *lll)
 		ftr->ticks_anchor = cmd_ble5_adv.pOutput->timeStamp;
 #warning "TODO: calculate end us"
 		ftr->radio_end_us = UINT32_MAX;
-
-		LOG_DBG("ta %u (%uus), re %u (%uus)", ftr->ticks_anchor,
-			HAL_TICKER_TICKS_TO_US(ftr->ticks_anchor), ftr->radio_end_us,
-			HAL_TICKER_TICKS_TO_US(ftr->radio_end_us));
 
 #if defined(CONFIG_BT_CTLR_PRIVACY)
 		ftr->rl_idx = irkmatch_ok ? rl_idx : FILTER_IDX_NONE;

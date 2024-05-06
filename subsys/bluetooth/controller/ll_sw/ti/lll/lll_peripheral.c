@@ -7,6 +7,8 @@
 #include <driverlib/rf_ble_mailbox.h>
 
 #include "hal/ccm.h"
+#include "hal/cntr.h"
+#include "hal/debug.h"
 #include "hal/radio.h"
 #include "hal/ticker.h"
 #include "hal/cc13xx_cc26xx/radio/rf_queue.h"
@@ -30,13 +32,16 @@
 #include "lll_vendor.h"
 
 #include "lll_internal.h"
+#include "lll_conn_internal.h"
 #include "lll_tim_internal.h"
-
-#include "hal/debug.h"
 
 #define LOG_LEVEL CONFIG_BT_HCI_DRIVER_LOG_LEVEL
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(bt_ti_peripheral);
+
+#define RF_RX_SLAVE_CONFIG_AUTO_FLUSH_IGNORED (1)
+#define RF_RX_SLAVE_CONFIG_AUTO_FLUSH_CRC_ERR (1)
+#define RF_RX_SLAVE_CONFIG_AUTO_FLUSH_EMPTY   (1)
 
 static rfc_ble5SlavePar_t ble_slave_param;
 static rfc_bleMasterSlaveOutput_t ble_slave_output;
@@ -83,12 +88,54 @@ void lll_periph_prepare(void *param)
 
 void lll_isr_peripheral(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_EventMask event_mask)
 {
+	LOG_DBG("cntr %u (%uus)", cntr_cnt_get(), HAL_TICKER_TICKS_TO_US(cntr_cnt_get()));
 	radio_isr(rf_handle, command_handle, event_mask);
 	LL_ASSERT(conn_param);
 
+#if defined(CONFIG_BT_TI_LLL_PACKET_DEBUG)
+	if (event_mask & (RADIO_RF_EVENT_MASK_TX_DONE | RADIO_RF_EVENT_MASK_RX_DONE)) {
+		LOG_DBG("\r\n"
+			"nTx %u\r\n"
+			"nTxAck %u\r\n"
+			"nTxCtrl %u\r\n"
+			"nTxCtrlAck %u\r\n"
+			"nTxCtrlAckAck %u\r\n"
+			"nTxRetrans %u\r\n"
+			"nTxEntryDone %u\r\n"
+			"nRxOk %u\r\n"
+			"nRxCtrl %u\r\n"
+			"nRxCtrlAck %u\r\n"
+			"nRxNok %u\r\n"
+			"nRxIgnored %u\r\n"
+			"nRxEmpty %u\r\n"
+			"nRxBufFull %u\r\n"
+			"bTimeStampValid %u\r\n"
+			"bLastCrcErr %u\r\n"
+			"bLastIgnored %u\r\n"
+			"bLastEmpty %u\r\n"
+			"bLastCtrl %u\r\n"
+			"bLastMd %u\r\n"
+			"bLastAck %u",
+			cmd_ble5_slave.pOutput->nTx, cmd_ble5_slave.pOutput->nTxAck,
+			cmd_ble5_slave.pOutput->nTxCtrl, cmd_ble5_slave.pOutput->nTxCtrlAck,
+			cmd_ble5_slave.pOutput->nTxCtrlAckAck, cmd_ble5_slave.pOutput->nTxRetrans,
+			cmd_ble5_slave.pOutput->nTxEntryDone, cmd_ble5_slave.pOutput->nRxOk,
+			cmd_ble5_slave.pOutput->nRxCtrl, cmd_ble5_slave.pOutput->nRxCtrlAck,
+			cmd_ble5_slave.pOutput->nRxNok, cmd_ble5_slave.pOutput->nRxIgnored,
+			cmd_ble5_slave.pOutput->nRxEmpty, cmd_ble5_slave.pOutput->nRxBufFull,
+			cmd_ble5_slave.pOutput->pktStatus.bTimeStampValid,
+			cmd_ble5_slave.pOutput->pktStatus.bLastCrcErr,
+			cmd_ble5_slave.pOutput->pktStatus.bLastIgnored,
+			cmd_ble5_slave.pOutput->pktStatus.bLastEmpty,
+			cmd_ble5_slave.pOutput->pktStatus.bLastCtrl,
+			cmd_ble5_slave.pOutput->pktStatus.bLastMd,
+			cmd_ble5_slave.pOutput->pktStatus.bLastAck);
+	}
+#endif
+
 	if (event_mask & RADIO_RF_EVENT_MASK_TX_DONE) {
 #if defined(CONFIG_BT_TI_LLL_PACKET_DEBUG)
-		LOG_WRN("tx_entry | rssi %i | ts %u |", cmd_ble5_slave.pOutput->lastRssi,
+		LOG_DBG("tx_entry | rssi %i | ts %u |", cmd_ble5_slave.pOutput->lastRssi,
 			cmd_ble5_slave.pOutput->timeStamp);
 #endif /* CONFIG_BT_TI_LLL_PACKET_DEBUG */
 		lll_conn_isr_tx(conn_param);
@@ -96,28 +143,24 @@ void lll_isr_peripheral(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_Eve
 
 	if (event_mask & RADIO_RF_EVENT_MASK_RX_DONE) {
 #if defined(CONFIG_BT_TI_LLL_PACKET_DEBUG)
-		LOG_WRN("rx_entry | rssi %i | ts %u |", cmd_ble5_slave.pOutput->lastRssi,
+		LOG_DBG("rx_entry | rssi %i | ts %u |", cmd_ble5_slave.pOutput->lastRssi,
 			cmd_ble5_slave.pOutput->timeStamp);
 #endif /* CONFIG_BT_TI_LLL_PACKET_DEBUG */
 		lll_conn_isr_rx(conn_param);
 	}
 
-	if (event_mask & RADIO_RF_EVENT_MASK_CMD_DONE) {
+	if (event_mask & (RADIO_RF_EVENT_MASK_CMD_DONE | RADIO_RF_EVENT_MASK_CMD_STOPPED)) {
 		isr_done(conn_param);
 	}
-
-	// if (event_mask & RADIO_RF_EVENT_MASK_CMD_STOPPED) {
-	// 	isr_abort(conn_param);
-	// }
 }
 
 static void init_reset(void)
 {
 	ble_slave_param.pRxQ = lll_conn_get_rf_rx_queue();
 	ble_slave_param.pTxQ = lll_conn_get_rf_tx_queue();
-	ble_slave_param.rxConfig.bAutoFlushIgnored = RADIO_RX_CONFIG_AUTO_FLUSH_IGNORED;
-	ble_slave_param.rxConfig.bAutoFlushCrcErr = RADIO_RX_CONFIG_AUTO_FLUSH_CRC_ERR;
-	ble_slave_param.rxConfig.bAutoFlushEmpty = RADIO_RX_CONFIG_AUTO_FLUSH_EMPTY;
+	ble_slave_param.rxConfig.bAutoFlushIgnored = RF_RX_SLAVE_CONFIG_AUTO_FLUSH_IGNORED;
+	ble_slave_param.rxConfig.bAutoFlushCrcErr = RF_RX_SLAVE_CONFIG_AUTO_FLUSH_CRC_ERR;
+	ble_slave_param.rxConfig.bAutoFlushEmpty = RF_RX_SLAVE_CONFIG_AUTO_FLUSH_EMPTY;
 	ble_slave_param.rxConfig.bIncludeLenByte = RADIO_RX_CONFIG_INCLUDE_LEN_BYTE;
 	ble_slave_param.rxConfig.bIncludeCrc = RADIO_RX_CONFIG_INCLUDE_CRC;
 	ble_slave_param.rxConfig.bAppendRssi = RADIO_RX_CONFIG_APPEND_RSSI;
@@ -132,7 +175,7 @@ static void init_reset(void)
 	ble_slave_param.seqStat.bLlCtrlAckRx = 0;
 	ble_slave_param.seqStat.bLlCtrlAckPending = 0;
 	ble_slave_param.maxNack = 0;
-	ble_slave_param.maxPkt = 0;
+	ble_slave_param.maxPkt = 1;
 	ble_slave_param.accessAddress = 0;
 	ble_slave_param.crcInit0 = 0;
 	ble_slave_param.crcInit1 = 0;
@@ -185,7 +228,6 @@ static int prepare_cb(struct lll_prepare_param *p)
 	 */
 	if (unlikely(conn_param->handle == 0xFFFF)) {
 		radio_disable(lll_isr_early_abort);
-
 		return 0;
 	}
 
@@ -206,10 +248,11 @@ static int prepare_cb(struct lll_prepare_param *p)
 
 	if (conn_param->data_chan_sel) {
 #if defined(CONFIG_BT_CTLR_CHAN_SEL_2)
-		cmd_ble5_slave.channel = =
+		cmd_ble5_slave.channel =
 			lll_chan_sel_2(event_counter, conn_param->data_chan_id,
 				       &conn_param->data_chan_map[0], conn_param->data_chan_count);
 #else  /* !CONFIG_BT_CTLR_CHAN_SEL_2 */
+		cmd_ble5_slave.channel = 0;
 		LL_ASSERT(cmd_ble5_slave.channel);
 #endif /* !CONFIG_BT_CTLR_CHAN_SEL_2 */
 	} else {
@@ -266,7 +309,6 @@ static int prepare_cb(struct lll_prepare_param *p)
 	lll_conn_rx_pkt_set(conn_param);
 
 	uint32_t ticks_at_event = p->ticks_at_expire;
-
 	struct ull_hdr *ull = HDR_LLL2ULL(conn_param);
 	ticks_at_event += lll_event_offset_get(ull);
 
@@ -279,8 +321,10 @@ static int prepare_cb(struct lll_prepare_param *p)
 	cmd_ble5_slave.pParams->endTime = 56000;
 	cmd_ble5_slave.pParams->endTrigger.triggerType = TRIG_REL_START;
 
+#warning "TODO: calculate start time"
 	radio_rf_op_start_tick((RF_Op *)&cmd_ble5_slave, ticks_at_start, p->remainder,
 			       lll_isr_peripheral);
+	// radio_rf_op_start_now((RF_Op *)&cmd_ble5_slave, lll_isr_peripheral);
 
 #if defined(CONFIG_BT_CTLR_CONN_RSSI)
 	radio_rssi_measure();

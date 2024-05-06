@@ -26,6 +26,7 @@
 #include "lll_peripheral.h"
 
 #include "lll_internal.h"
+#include "lll_peripheral_internal.h"
 #include "lll_prof_internal.h"
 #include "lll_tim_internal.h"
 
@@ -61,10 +62,6 @@ struct RF_TX_DATA_CONN {
 		RF_TX_BUFFER_LOCAL_DATA_SIZE)] __attribute__((aligned(4)));
 } rf_tx_data_conn;
 
-static uint8_t crc_expire;
-static uint8_t crc_valid;
-static uint16_t trx_cnt;
-
 #warning "TODO: Remove if not needed"
 static uint8_t MALIGN(4) _pkt_empty[PDU_EM_LL_SIZE_MAX];
 
@@ -95,9 +92,7 @@ void lll_conn_flush(uint16_t handle, struct lll_conn *lll)
 
 void lll_conn_prepare_reset(void)
 {
-	trx_cnt = 0U;
-	crc_valid = 0U;
-	crc_expire = 0U;
+	/* Nothing to reset */
 }
 
 void lll_conn_abort_cb(struct lll_prepare_param *prepare_param, void *param)
@@ -159,14 +154,6 @@ void lll_conn_isr_rx(void *param)
 		return;
 	}
 
-	/* Reset CRC expiry counter */
-	crc_expire = 0U;
-
-	/* CRC valid flag used to detect supervision timeout */
-	crc_valid = 1U;
-
-#warning "TODO: Handle CRC errors here?"
-
 	/* prepare tx packet */
 	struct pdu_data *pdu_data_tx;
 	lll_conn_pdu_tx_prep(lll, &pdu_data_tx);
@@ -193,12 +180,12 @@ void lll_conn_isr_tx(void *param)
 			uint8_t *data = rf_tx_data_conn.tail_entry->pData;
 			uint8_t a_d = data[0];
 			uint16_t data_size = data[1] + 2;
-			LOG_WRN("tx_entry | ad %u | ds %u |", a_d, data_size);
+			LOG_DBG("tx_entry | ad %u | ds %u |", a_d, data_size);
 			struct pdu_adv *pdu_adv = (struct pdu_adv *)data;
-			LOG_WRN("pdu | type %u | rfu %u | ch %u | tx %u | rx %u | len %u |",
+			LOG_DBG("pdu | type %u | rfu %u | ch %u | tx %u | rx %u | len %u |",
 				pdu_adv->type, pdu_adv->rfu, pdu_adv->chan_sel, pdu_adv->tx_addr,
 				pdu_adv->rx_addr, pdu_adv->len);
-			LOG_HEXDUMP_WRN(data, data_size, "TX");
+			LOG_HEXDUMP_DBG(data, data_size, "TX");
 #endif /* CONFIG_BT_TI_LLL_PACKET_DEBUG */
 		}
 
@@ -349,12 +336,12 @@ static int isr_rx_pdu(struct lll_conn *lll, struct pdu_data *pdu_data_rx, uint8_
 			uint8_t *data = rf_rx_data_conn.tail_entry->pData;
 			uint8_t a_d = data[0];
 			uint16_t data_size = data[1] + 2;
-			LOG_WRN("rx_entry | ad %u | ds %u |", a_d, data_size);
+			LOG_DBG("rx_entry | ad %u | ds %u |", a_d, data_size);
 			struct pdu_adv *pdu_adv = (struct pdu_adv *)data;
-			LOG_WRN("pdu | type %u | rfu %u | ch %u | tx %u | rx %u | len %u |",
+			LOG_DBG("pdu | type %u | rfu %u | ch %u | tx %u | rx %u | len %u |",
 				pdu_adv->type, pdu_adv->rfu, pdu_adv->chan_sel, pdu_adv->tx_addr,
 				pdu_adv->rx_addr, pdu_adv->len);
-			LOG_HEXDUMP_WRN(data, data_size, "RX");
+			LOG_HEXDUMP_DBG(data, data_size, "RX");
 #endif /* CONFIG_BT_TI_LLL_PACKET_DEBUG */
 		}
 
