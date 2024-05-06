@@ -479,9 +479,13 @@ static inline int isr_rx_pdu(struct lll_adv *lll)
 
 		ftr = &(rx->hdr.rx_ftr);
 		ftr->param = lll;
-		ftr->ticks_anchor = cmd_ble5_adv.startTime;
-		ftr->radio_end_us =
-			cmd_ble5_adv.pOutput->timeStamp - radio_rx_chain_delay_get(0, 0);
+		ftr->ticks_anchor = cmd_ble5_adv.pOutput->timeStamp;
+#warning "TODO: calculate end us"
+		ftr->radio_end_us = UINT32_MAX;
+
+		LOG_DBG("ta %u (%uus), re %u (%uus)", ftr->ticks_anchor,
+			HAL_TICKER_TICKS_TO_US(ftr->ticks_anchor), ftr->radio_end_us,
+			HAL_TICKER_TICKS_TO_US(ftr->radio_end_us));
 
 #if defined(CONFIG_BT_CTLR_PRIVACY)
 		ftr->rl_idx = irkmatch_ok ? rl_idx : FILTER_IDX_NONE;
@@ -509,7 +513,7 @@ static void isr_done(void *param)
 	 */
 	if (lll->chan_map_curr
 #if defined(CONFIG_BT_PERIPHERAL)
-	    && (!lll->conn || !lll->conn->periph.cancelled)
+	    && (!lll->conn || !lll->conn->periph.cancelled) && !lll->conn->periph.initiated
 #endif /* CONFIG_BT_PERIPHERAL */
 	) {
 

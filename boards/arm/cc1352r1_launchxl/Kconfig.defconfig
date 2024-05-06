@@ -11,4 +11,9 @@ config BOARD
 config BT_CTLR
 	default BT
 
+config BT_TI_LLL_PACKET_DEBUG
+    bool "debug BT LLL packets"
+    depends on BT
+    default n
+
 endif # BOARD_CC1352R1_LAUNCHXL

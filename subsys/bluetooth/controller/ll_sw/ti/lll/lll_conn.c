@@ -23,6 +23,7 @@
 #include "lll.h"
 #include "lll_conn.h"
 #include "lll_clock.h"
+#include "lll_peripheral.h"
 
 #include "lll_internal.h"
 #include "lll_prof_internal.h"
@@ -75,12 +76,14 @@ static void lll_conn_isr_rx_exit(struct lll_conn *lll, struct node_rx_pdu *node_
 
 int lll_conn_init(void)
 {
+	lll_periph_init();
 	init_reset();
 	return 0;
 }
 
 int lll_conn_reset(void)
 {
+	lll_periph_reset();
 	init_reset();
 	return 0;
 }
