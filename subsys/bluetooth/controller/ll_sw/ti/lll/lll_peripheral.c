@@ -39,9 +39,9 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(bt_ti_peripheral);
 
-#define RF_RX_SLAVE_CONFIG_AUTO_FLUSH_IGNORED (1)
-#define RF_RX_SLAVE_CONFIG_AUTO_FLUSH_CRC_ERR (1)
-#define RF_RX_SLAVE_CONFIG_AUTO_FLUSH_EMPTY   (1)
+#define RF_RX_SLAVE_CONFIG_AUTO_FLUSH_IGNORED (0)
+#define RF_RX_SLAVE_CONFIG_AUTO_FLUSH_CRC_ERR (0)
+#define RF_RX_SLAVE_CONFIG_AUTO_FLUSH_EMPTY   (0)
 
 static rfc_ble5SlavePar_t ble_slave_param;
 static rfc_bleMasterSlaveOutput_t ble_slave_output;
@@ -92,6 +92,22 @@ void lll_isr_peripheral(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_Eve
 	radio_isr(rf_handle, command_handle, event_mask);
 	LL_ASSERT(conn_param);
 
+	if (event_mask & RADIO_RF_EVENT_MASK_RX_DONE) {
+#if defined(CONFIG_BT_TI_LLL_PACKET_DEBUG)
+		LOG_DBG("rx_entry | rssi %i | ts %u |", cmd_ble5_slave.pOutput->lastRssi,
+			cmd_ble5_slave.pOutput->timeStamp);
+#endif /* CONFIG_BT_TI_LLL_PACKET_DEBUG */
+		lll_conn_isr_rx(conn_param);
+	}
+
+	if (event_mask & RADIO_RF_EVENT_MASK_TX_DONE) {
+#if defined(CONFIG_BT_TI_LLL_PACKET_DEBUG)
+		LOG_DBG("tx_entry | rssi %i | ts %u |", cmd_ble5_slave.pOutput->lastRssi,
+			cmd_ble5_slave.pOutput->timeStamp);
+#endif /* CONFIG_BT_TI_LLL_PACKET_DEBUG */
+		lll_conn_isr_tx(conn_param);
+	}
+
 #if defined(CONFIG_BT_TI_LLL_PACKET_DEBUG)
 	if (event_mask & (RADIO_RF_EVENT_MASK_TX_DONE | RADIO_RF_EVENT_MASK_RX_DONE)) {
 		LOG_DBG("\r\n"
@@ -133,24 +149,8 @@ void lll_isr_peripheral(RF_Handle rf_handle, RF_CmdHandle command_handle, RF_Eve
 	}
 #endif
 
-	if (event_mask & RADIO_RF_EVENT_MASK_TX_DONE) {
-#if defined(CONFIG_BT_TI_LLL_PACKET_DEBUG)
-		LOG_DBG("tx_entry | rssi %i | ts %u |", cmd_ble5_slave.pOutput->lastRssi,
-			cmd_ble5_slave.pOutput->timeStamp);
-#endif /* CONFIG_BT_TI_LLL_PACKET_DEBUG */
-		lll_conn_isr_tx(conn_param);
-	}
-
-	if (event_mask & RADIO_RF_EVENT_MASK_RX_DONE) {
-#if defined(CONFIG_BT_TI_LLL_PACKET_DEBUG)
-		LOG_DBG("rx_entry | rssi %i | ts %u |", cmd_ble5_slave.pOutput->lastRssi,
-			cmd_ble5_slave.pOutput->timeStamp);
-#endif /* CONFIG_BT_TI_LLL_PACKET_DEBUG */
-		lll_conn_isr_rx(conn_param);
-	}
-
 	if (event_mask & (RADIO_RF_EVENT_MASK_CMD_DONE | RADIO_RF_EVENT_MASK_CMD_STOPPED)) {
-		isr_done(conn_param);
+        isr_done(conn_param);
 	}
 }
 
@@ -175,7 +175,7 @@ static void init_reset(void)
 	ble_slave_param.seqStat.bLlCtrlAckRx = 0;
 	ble_slave_param.seqStat.bLlCtrlAckPending = 0;
 	ble_slave_param.maxNack = 0;
-	ble_slave_param.maxPkt = 1;
+	ble_slave_param.maxPkt = 0;
 	ble_slave_param.accessAddress = 0;
 	ble_slave_param.crcInit0 = 0;
 	ble_slave_param.crcInit1 = 0;
@@ -316,10 +316,10 @@ static int prepare_cb(struct lll_prepare_param *p)
 	ticks_at_start += HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_START_US);
 
 #warning "TODO: calculate hcto"
-	cmd_ble5_slave.pParams->timeoutTime = 56000;
-	cmd_ble5_slave.pParams->timeoutTrigger.triggerType = TRIG_REL_START;
-	cmd_ble5_slave.pParams->endTime = 56000;
-	cmd_ble5_slave.pParams->endTrigger.triggerType = TRIG_REL_START;
+	cmd_ble5_slave.pParams->timeoutTime = 0;
+	cmd_ble5_slave.pParams->timeoutTrigger.triggerType = TRIG_NEVER;
+	cmd_ble5_slave.pParams->endTime = 0;
+	cmd_ble5_slave.pParams->endTrigger.triggerType = TRIG_NEVER;
 
 #warning "TODO: calculate start time"
 	radio_rf_op_start_tick((RF_Op *)&cmd_ble5_slave, ticks_at_start, p->remainder,
@@ -358,8 +358,8 @@ static void isr_done(void *param)
 #endif /* !CONFIG_BT_CTLR_PHY */
 
 #warning "TODO: Figure this out"
-			e->drift.start_to_address_actual_us = 100;
-			// radio_tmr_aa_restore() - radio_tmr_ready_get();
+			e->drift.start_to_address_actual_us = HAL_TICKER_TICKS_TO_US(
+				cmd_ble5_slave.pOutput->timeStamp - cmd_ble5_slave.startTime);
 			e->drift.window_widening_event_us = lll->periph.window_widening_event_us;
 			e->drift.preamble_to_addr_us = preamble_to_addr_us;
 
