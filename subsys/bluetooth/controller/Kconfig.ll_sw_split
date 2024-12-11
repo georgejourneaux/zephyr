@@ -91,6 +91,20 @@ config BT_LLL_VENDOR_OPENISA
 	help
 	  Use OpenISA Lower Link Layer implementation.
 
+config BT_LLL_VENDOR_TI
+	bool "Use Texas Instruments LLL"
+	depends on CC13X2_CC26X2_BT
+
+	select BT_HAS_HCI_VS
+
+	select BT_TICKER_REMAINDER_SUPPORT
+    select BT_TICKER_UPDATE if BT_BROADCASTER || BT_CONN || \
+				   (BT_OBSERVER && BT_CTLR_ADV_EXT)
+
+	default y
+	help
+	  Use Texas Instruments Lower Link Layer implementation.
+
 # BT_CTLR_DF_SUPPORT is a wrapper for all DF features. Here we select features that are supported by
 # Zephyr's BLE Controller.
 config BT_CTLR_DF_SUPPORT

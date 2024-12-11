@@ -219,6 +219,11 @@ add_subdirectory_ifdef(
   ll_sw/openisa
   )
 
+add_subdirectory_ifdef(
+  CONFIG_BT_LLL_VENDOR_TI
+  ll_sw/ti
+  )
+
 zephyr_library_compile_options_ifdef(
   CONFIG_BT_CTLR_OPTIMIZE_FOR_SIZE
   ${OPTIMIZE_FOR_SIZE_FLAG}

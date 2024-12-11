@@ -68,3 +68,11 @@ config CC13X2_CC26X2_BASIC_BT
 	help
 	  Enable Bluetooth support for the CC13X2 and CC26X2 series of MCUs
 	  using the TI driverlib without the Zephyr or TI Bluetooth stack.
+
+config CC13X2_CC26X2_BT
+	bool "Zephyr Bluetooth support"
+    select BLE_CC13XX_CC26XX
+    select ENTROPY_CC13XX_CC26XX_RNG
+	help
+	  Enable Bluetooth support for the CC13X2 and CC26X2 series of MCUs
+	  using the the Zephyr Bluetooth stack.
