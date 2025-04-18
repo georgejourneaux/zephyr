@@ -36,6 +36,10 @@ config BLE_CC13XX_CC26XX
 	bool
 	default y
 
+config BT_CTLR
+    bool
+    default !CC13X2_CC26X2_BASIC_BT
+
 endif # BT || CC13X2_CC26X2_BASIC_BT
 
 endif # SOC_SERIES_CC13X2_CC26X2

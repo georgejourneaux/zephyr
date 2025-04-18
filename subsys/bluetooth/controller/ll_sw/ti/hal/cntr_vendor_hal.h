@@ -1,0 +1,1 @@
+#include "hal/cc13xx_cc26xx/cntr.h"

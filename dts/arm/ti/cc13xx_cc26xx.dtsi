@@ -12,6 +12,7 @@
 
 / {
 	chosen {
+        zephyr,bt-hci = &bt_hci_controller;
 		zephyr,entropy = &trng;
 		zephyr,flash-controller = &flash_controller;
 	};
@@ -222,6 +223,11 @@
 			ieee802154g: ieee802154g {
 				compatible = "ti,cc13xx-cc26xx-ieee802154-subghz";
 				status = "disabled";
+			};
+
+            bt_hci_controller: bt_hci_controller {
+				compatible = "zephyr,bt-hci-ll-sw-split";
+				status = "okay";
 			};
 		};
 
