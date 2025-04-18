@@ -31,21 +31,18 @@
 #define RTC_COUNTS_PER_SEC 0x100000000ULL
 
 /* Number of counts per rtc timer cycle */
-#define RTC_COUNTS_PER_CYCLE (RTC_COUNTS_PER_SEC / \
-	sys_clock_hw_cycles_per_sec())
+#define RTC_COUNTS_PER_CYCLE (RTC_COUNTS_PER_SEC / sys_clock_hw_cycles_per_sec())
 
 /* Number of counts per system clock tick */
-#define RTC_COUNTS_PER_TICK (RTC_COUNTS_PER_SEC / \
-	CONFIG_SYS_CLOCK_TICKS_PER_SEC)
+#define RTC_COUNTS_PER_TICK (RTC_COUNTS_PER_SEC / CONFIG_SYS_CLOCK_TICKS_PER_SEC)
 
 /* Number of RTC cycles per system clock tick */
-#define CYCLES_PER_TICK (sys_clock_hw_cycles_per_sec() / \
-	CONFIG_SYS_CLOCK_TICKS_PER_SEC)
+#define CYCLES_PER_TICK (sys_clock_hw_cycles_per_sec() / CONFIG_SYS_CLOCK_TICKS_PER_SEC)
 
 /*
  * Maximum number of ticks.
  */
-#define MAX_CYC 0x7FFFFFFFFFFFULL
+#define MAX_CYC   0x7FFFFFFFFFFFULL
 #define MAX_TICKS (MAX_CYC / RTC_COUNTS_PER_TICK)
 
 /*
@@ -63,7 +60,6 @@ static struct k_spinlock lock;
 #else
 static uint64_t nextThreshold = RTC_COUNTS_PER_TICK;
 #endif /* CONFIG_TICKLESS_KERNEL */
-
 
 static void setThreshold(uint32_t next)
 {
@@ -92,7 +88,7 @@ static void setThreshold(uint32_t next)
 	irq_unlock(key);
 }
 
-void rtc_isr(const void *arg)
+void rtc_isr_event_ch0(const void *arg)
 {
 #ifndef CONFIG_TICKLESS_KERNEL
 	uint64_t newThreshold;
@@ -102,8 +98,6 @@ void rtc_isr(const void *arg)
 #endif
 
 	ARG_UNUSED(arg);
-
-	AONRTCEventClear(AON_RTC_CH0);
 
 #ifdef CONFIG_TICKLESS_KERNEL
 	k_spinlock_key_t key = k_spin_lock(&lock);
@@ -130,6 +124,41 @@ void rtc_isr(const void *arg)
 	sys_clock_announce(1);
 
 #endif /* CONFIG_TICKLESS_KERNEL */
+}
+
+__weak void rtc_isr_event_ch1(const void *arg)
+{
+	ARG_UNUSED(arg);
+}
+
+__weak void rtc_isr_event_ch2(const void *arg)
+{
+	ARG_UNUSED(arg);
+}
+
+__weak void rtc_isr_event(const void *arg)
+{
+	ARG_UNUSED(arg);
+}
+
+void rtc_isr(const void *arg)
+{
+	if (AONRTCEventGet(AON_RTC_CH0)) {
+		AONRTCEventClear(AON_RTC_CH0);
+		rtc_isr_event_ch0(arg);
+	}
+
+	if (AONRTCEventGet(AON_RTC_CH1)) {
+		AONRTCEventClear(AON_RTC_CH1);
+		rtc_isr_event_ch1(arg);
+	}
+
+	if (AONRTCEventGet(AON_RTC_CH2)) {
+		AONRTCEventClear(AON_RTC_CH2);
+		rtc_isr_event_ch2(arg);
+	}
+
+	rtc_isr_event(arg);
 }
 
 static void initDevice(void)
@@ -194,18 +223,16 @@ void sys_clock_set_timeout(int32_t ticks, bool idle)
 #ifdef CONFIG_TICKLESS_KERNEL
 
 	ticks = (ticks == K_TICKS_FOREVER) ? MAX_TICKS : ticks;
-	ticks = CLAMP(ticks - 1, 0, (int32_t) MAX_TICKS);
+	ticks = CLAMP(ticks - 1, 0, (int32_t)MAX_TICKS);
 
 	k_spinlock_key_t key = k_spin_lock(&lock);
 
 	/* Compute number of RTC cycles until the next timeout. */
 	uint64_t count = AONRTCCurrent64BitValueGet();
-	uint64_t timeout = ticks * RTC_COUNTS_PER_TICK +
-		(count - rtc_last);
+	uint64_t timeout = ticks * RTC_COUNTS_PER_TICK + (count - rtc_last);
 
 	/* Round to the nearest tick boundary. */
-	timeout = DIV_ROUND_UP(timeout, RTC_COUNTS_PER_TICK) *
-		  RTC_COUNTS_PER_TICK;
+	timeout = DIV_ROUND_UP(timeout, RTC_COUNTS_PER_TICK) * RTC_COUNTS_PER_TICK;
 	timeout = MIN(timeout, MAX_CYC);
 	timeout += rtc_last;
 
@@ -218,8 +245,7 @@ void sys_clock_set_timeout(int32_t ticks, bool idle)
 
 uint32_t sys_clock_elapsed(void)
 {
-	uint32_t ret = (AONRTCCurrent64BitValueGet() - rtc_last) /
-		RTC_COUNTS_PER_TICK;
+	uint32_t ret = (AONRTCCurrent64BitValueGet() - rtc_last) / RTC_COUNTS_PER_TICK;
 
 	return ret;
 }
@@ -243,13 +269,10 @@ static int sys_clock_driver_init(void)
 	startDevice();
 
 	/* Enable RTC interrupt. */
-	IRQ_CONNECT(DT_INST_IRQN(0),
-		DT_INST_IRQ(0, priority),
-		rtc_isr, 0, 0);
+	IRQ_CONNECT(DT_INST_IRQN(0), DT_INST_IRQ(0, priority), rtc_isr, 0, 0);
 	irq_enable(DT_INST_IRQN(0));
 
 	return 0;
 }
 
-SYS_INIT(sys_clock_driver_init, PRE_KERNEL_2,
-	 CONFIG_SYSTEM_CLOCK_INIT_PRIORITY);
+SYS_INIT(sys_clock_driver_init, PRE_KERNEL_2, CONFIG_SYSTEM_CLOCK_INIT_PRIORITY);
